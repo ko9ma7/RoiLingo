@@ -35,11 +35,18 @@ public sealed class TranslationCache
 
     public bool TryGet(string source, string target, out string provider, out string text)
     {
-        if (_entries.TryGetValue(Key(source, target), out var entry))
+        var key = Key(source, target);
+        if (_entries.TryGetValue(key, out var entry))
         {
-            provider = entry.Provider;
-            text = entry.Text;
-            return true;
+            if (TranslationTextValidator.IsUsable(source, entry.Text))
+            {
+                provider = entry.Provider;
+                text = entry.Text;
+                return true;
+            }
+
+            // Bad web-page chrome/failure text must never become sticky across sessions.
+            _entries.TryRemove(key, out _);
         }
         provider = "";
         text = "";
@@ -62,6 +69,29 @@ public sealed class TranslationCache
             var temp = _path + ".tmp";
             await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(_entries));
             File.Move(temp, _path, true);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+
+    public async Task ClearAsync()
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            _entries.Clear();
+            try
+            {
+                if (File.Exists(_path)) File.Delete(_path);
+            }
+            catch (IOException)
+            {
+                // In-memory cache is already cleared. A locked cache file can be
+                // replaced naturally on the next successful PutAsync call.
+            }
         }
         finally
         {

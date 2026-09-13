@@ -16,23 +16,44 @@ internal static class WebResultExtractor
         bool includeAccessibility)
     {
         var known = await ExecuteStringScriptAsync(core, knownSelectorScript);
-        if (IsUsable(known, sourceText)) return (Normalize(known), "known-selector");
+        if (IsTranslationCandidate(known, sourceText, targetLanguage))
+            return (Normalize(known), "known-selector");
+
+        // Modern React/Vue translator pages frequently put the useful text inside a tiny nested
+        // text node while the surrounding element.innerText also contains language menus/actions.
+        // Range geometry lets us score only the text that is actually painted in the right pane.
+        var textNodeScript = WebTranslationScripts.BuildTextNodeTargetResultScript(sourceText, targetLanguage, providerName);
+        var textNode = await ExecuteStringScriptAsync(core, textNodeScript);
+        if (IsTranslationCandidate(textNode, sourceText, targetLanguage))
+            return (Normalize(textNode), "text-node-geometry");
+
+        // Prefer a layout-anchored extraction: find the source sentence on the page and
+        // score target-language text in the mirrored/right translation pane at a similar Y position.
+        // This avoids choosing menus such as "한국어 영어 일본어 중국어 ..." as a translation.
+        var anchoredScript = WebTranslationScripts.BuildAnchoredTargetResultScript(sourceText, targetLanguage, providerName);
+        var anchored = await ExecuteStringScriptAsync(core, anchoredScript);
+        if (IsTranslationCandidate(anchored, sourceText, targetLanguage))
+            return (Normalize(anchored), "layout-anchor");
 
         var snapshot = await TryVisibleDomSnapshotAsync(core, sourceText, targetLanguage);
-        if (IsUsable(snapshot, sourceText)) return (Normalize(snapshot), "visible-dom-snapshot");
+        if (IsTranslationCandidate(snapshot, sourceText, targetLanguage))
+            return (Normalize(snapshot), "visible-dom-snapshot");
 
         var heuristicScript = WebTranslationScripts.BuildHeuristicResultScript(sourceText, targetLanguage, providerName);
         var heuristic = await ExecuteStringScriptAsync(core, heuristicScript);
-        if (IsUsable(heuristic, sourceText)) return (Normalize(heuristic), "dom-heuristic");
+        if (IsTranslationCandidate(heuristic, sourceText, targetLanguage))
+            return (Normalize(heuristic), "dom-heuristic");
 
         var body = await ExecuteStringScriptAsync(core, "(() => document.body ? (document.body.innerText || '') : '')()");
         var bodyCandidate = ExtractFromBody(body, sourceText, targetLanguage);
-        if (IsUsable(bodyCandidate, sourceText)) return (Normalize(bodyCandidate), "body-text");
+        if (IsTranslationCandidate(bodyCandidate, sourceText, targetLanguage))
+            return (Normalize(bodyCandidate), "body-text");
 
         if (includeAccessibility)
         {
             var ax = await TryAccessibilityTreeAsync(core, sourceText, targetLanguage);
-            if (IsUsable(ax, sourceText)) return (Normalize(ax), "accessibility-tree");
+            if (IsTranslationCandidate(ax, sourceText, targetLanguage))
+                return (Normalize(ax), "accessibility-tree");
         }
 
         return (string.Empty, "none");
@@ -56,21 +77,42 @@ internal static class WebResultExtractor
         string targetLanguage,
         string clipboardBefore)
     {
+        // A unique marker makes the probe reliable even when the user's clipboard already
+        // contains the same translated sentence from an earlier request.
+        var marker = $"RoiLingo:{Guid.NewGuid():N}";
+        try
+        {
+            System.Windows.Clipboard.SetText(marker);
+        }
+        catch
+        {
+            // If clipboard ownership is temporarily unavailable, keep the previous behavior.
+        }
+
         var clicked = await ExecuteBoolScriptAsync(core, WebTranslationScripts.TargetCopyButtonClick);
-        if (!clicked) return (string.Empty, "copy-button-not-found");
+        if (!clicked)
+        {
+            TryRestoreClipboard(clipboardBefore, marker);
+            return (string.Empty, "copy-button-not-found");
+        }
 
-        await Task.Delay(180);
-        var current = ReadClipboardText();
-        if (string.IsNullOrWhiteSpace(current) || string.Equals(Normalize(current), Normalize(clipboardBefore), StringComparison.Ordinal))
-            return (string.Empty, "copy-button-no-clipboard-change");
-        var candidate = Normalize(current);
-        if (!IsUsable(candidate, sourceText) || TargetScriptRatio(candidate, targetLanguage) < 0.20)
-            return (string.Empty, "copy-button-unusable");
+        for (var i = 0; i < 5; i++)
+        {
+            await Task.Delay(120);
+            var current = ReadClipboardText();
+            if (string.IsNullOrWhiteSpace(current) || string.Equals(current, marker, StringComparison.Ordinal))
+                continue;
 
-        // The copy-button fallback is an internal extraction technique; avoid permanently
-        // replacing whatever the user had in the clipboard before the translation.
-        TryRestoreClipboard(clipboardBefore, current);
-        return (candidate, "copy-button-clipboard");
+            var candidate = Normalize(current);
+            TryRestoreClipboard(clipboardBefore, current);
+            if (!IsTranslationCandidate(candidate, sourceText, targetLanguage))
+                return (string.Empty, "copy-button-unusable");
+
+            return (candidate, "copy-button-clipboard");
+        }
+
+        TryRestoreClipboard(clipboardBefore, ReadClipboardText());
+        return (string.Empty, "copy-button-no-clipboard-change");
     }
 
 
@@ -138,7 +180,7 @@ internal static class WebResultExtractor
             foreach (var node in nodes)
             {
                 var text = Normalize(node.Text);
-                if (!IsUsable(text, sourceText) || LooksLikeUiLabel(text)) continue;
+                if (!IsTranslationCandidate(text, sourceText, targetLanguage)) continue;
                 var score = TargetScriptRatio(text, targetLanguage) * 180.0;
                 score += Math.Min(40, text.Length / 4.0);
                 if (node.Left + node.Width / 2 > 520) score += 18;
@@ -170,7 +212,7 @@ internal static class WebResultExtractor
         var lines = body.Replace('\r', '\n')
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(Normalize)
-            .Where(x => x.Length >= 2 && x.Length <= 800 && !LooksLikeUiLabel(x))
+            .Where(x => x.Length >= 2 && x.Length <= 800 && !LooksLikeTranslatorChromeText(x))
             .ToArray();
 
         string best = string.Empty;
@@ -180,7 +222,7 @@ internal static class WebResultExtractor
             for (var take = 1; take <= 3 && i + take <= lines.Length; take++)
             {
                 var text = string.Join(' ', lines.Skip(i).Take(take));
-                if (!IsUsable(text, sourceText)) continue;
+                if (!IsTranslationCandidate(text, sourceText, targetLanguage)) continue;
                 var ratio = TargetScriptRatio(text, targetLanguage);
                 var score = ratio * 180 + Math.Min(45, text.Length / 4.0);
                 if (TextSimilarity.Ratio(text, sourceText) > 0.70) score -= 180;
@@ -264,7 +306,7 @@ internal static class WebResultExtractor
     private static void ScoreCandidate(string? raw, string? role, string sourceText, string targetLanguage, ref string best, ref double bestScore)
     {
         var text = Normalize(raw);
-        if (!IsUsable(text, sourceText) || text.Length > 1200 || text.Length < 2 || LooksLikeUiLabel(text)) return;
+        if (!IsTranslationCandidate(text, sourceText, targetLanguage) || text.Length > 1200 || text.Length < 2) return;
         var score = TargetScriptRatio(text, targetLanguage) * 150.0 + Math.Min(35, text.Length / 4.0);
         role = (role ?? string.Empty).ToLowerInvariant();
         if (role.Contains("textbox") || role.Contains("text field")) score += 100;
@@ -275,26 +317,70 @@ internal static class WebResultExtractor
         if (score > bestScore) { bestScore = score; best = text; }
     }
 
-    private static bool IsUsable(string? value, string sourceText)
+    internal static bool IsTranslationCandidate(string? value, string sourceText, string targetLanguage)
     {
         if (string.IsNullOrWhiteSpace(value)) return false;
+
         var normalized = Normalize(value);
         var source = Normalize(sourceText);
-        if (normalized.Length < 2) return false;
-        return !string.Equals(normalized, source, StringComparison.OrdinalIgnoreCase);
+        if (normalized.Length < 2 || normalized.Length > 1800) return false;
+        if (string.Equals(normalized, source, StringComparison.OrdinalIgnoreCase)) return false;
+        if (TextSimilarity.Ratio(normalized, source) > 0.90) return false;
+        if (LooksLikeTranslatorChromeText(normalized)) return false;
+
+        // For non-Latin target languages the target script is a strong validation signal.
+        // Keep the threshold intentionally low because numbers, product names and Latin acronyms
+        // can legitimately appear inside a translated sentence.
+        var lang = targetLanguage.ToLowerInvariant();
+        if (lang.StartsWith("ko") || lang.StartsWith("ja") || lang.StartsWith("zh") ||
+            lang.StartsWith("ru") || lang.StartsWith("el"))
+        {
+            if (TargetScriptRatio(normalized, targetLanguage) < 0.12) return false;
+        }
+
+        // A real translation is normally in the same order of magnitude as its source.
+        // This rejects large navigation/menu dumps while preserving short UI/game strings.
+        if (source.Length >= 12 && normalized.Length > Math.Max(900, source.Length * 6))
+            return false;
+
+        return true;
     }
 
-    private static bool LooksLikeUiLabel(string text)
+    private static bool LooksLikeTranslatorChromeText(string text)
     {
         var compact = text.Trim().ToLowerInvariant();
-        if (compact.Length > 80) return false;
-        string[] labels =
+        if (compact.Length == 0) return true;
+
+        string[] exactLabels =
         [
             "papago", "papago+", "로그인", "번역기록", "즐겨찾기", "용어집", "번역 설정",
             "google 번역", "google translate", "deepl", "translator", "텍스트", "이미지", "문서", "웹사이트",
             "영어 감지", "한국어", "영어", "일본어", "중국어", "copy", "복사", "공유", "share"
         ];
-        return labels.Any(label => compact.Equals(label, StringComparison.OrdinalIgnoreCase));
+        if (compact.Length <= 100 && exactLabels.Any(label => compact.Equals(label, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        // Language pickers were the main false positive in v1.3.0. A result such as
+        // "한국어 한국어 영어 일본어 중국어(간체) ..." is page chrome, not a translation.
+        string[] languageNames =
+        [
+            "한국어", "영어", "일본어", "중국어", "중국어(간체)", "중국어(번체)", "스페인어",
+            "프랑스어", "독일어", "러시아어", "포르투갈어", "이탈리아어", "베트남어",
+            "태국어", "인도네시아어", "힌디어", "아랍어", "english", "korean",
+            "japanese", "chinese", "spanish", "french", "german", "russian"
+        ];
+        var languageHits = languageNames.Count(name => compact.Contains(name, StringComparison.OrdinalIgnoreCase));
+        if (languageHits >= 3) return true;
+
+        string[] chromePhrases =
+        [
+            "감지된 언어가 없습니다", "입력 언어를 확인해 주세요", "번역 방법", "텍스트 이미지 문서",
+            "플러스 소개", "번역 설정", "번역기록", "언어 감지", "언어 선택"
+        ];
+        if (chromePhrases.Any(p => compact.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        return false;
     }
 
     private static double TargetScriptRatio(string text, string targetLanguage)

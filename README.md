@@ -2,7 +2,7 @@
 
 RoiLingo is a Windows WPF live OCR translator for games and other applications. It watches user-defined ROI regions, runs OCR only when a region changes, translates newly detected text, and shows the result in a click-through overlay and/or a movable live translation window.
 
-Version **1.3.0** supports two translation paths at the same time:
+Version **1.6.1** supports two translation paths at the same time:
 
 - **WebView2 web translators**: Papago, Google Translate, DeepL — no API key required.
 - **API/local translators**: Papago Text Translation API, Google Cloud Translation Basic API, DeepL API, and LibreTranslate/Argos-compatible servers.
@@ -19,7 +19,8 @@ The default **Hybrid Balanced** strategy calls one API/local provider and one we
 - Embedded WebView2 tabs for Papago, Google Translate, DeepL.
 - Web result extraction fallbacks:
   - known selectors,
-  - rendered visible DOM snapshot,
+  - source/target **layout-anchored** result extraction,
+  - rendered visible DOM snapshot with UI-chrome rejection,
   - generic DOM scoring,
   - whole-page visible body text,
   - Chromium accessibility tree,
@@ -32,8 +33,10 @@ The default **Hybrid Balanced** strategy calls one API/local provider and one we
 - Hybrid provider rotation and local daily/monthly budget limits.
 - DeepL `/v2/usage` actual usage lookup during API test.
 - DPAPI-encrypted API secrets tied to the current Windows user.
-- Translation cache.
-- Click-through overlay.
+- Translation cache with invalid web-UI/failure result rejection.
+- **Coalescing latest-per-ROI**: a running WebView translation is allowed to finish, stale results are discarded, and only the newest pending OCR sentence is retained. This avoids cancelling the browser while it is still navigating/inserting text.
+- The game overlay clears the previous sentence when a new sentence is confirmed or when the ROI becomes empty.
+- Click-through game overlay with per-ROI position offset, width, background opacity, font size, source/meta visibility.
 - Separate movable/resizable always-on-top live translation window with saved position/size/font.
 - Translation history, provider comparison, CSV export, daily runtime logs.
 - Windows GitHub Actions build and GitHub Release packaging.
@@ -55,7 +58,10 @@ one capture frame
        Tesseract OCR
             |
             v
-       text dedupe/cache
+       text dedupe
+            |
+   per-ROI coalescing worker
+ (keep only newest pending text)
             |
             +---------------- Hybrid scheduler ----------------+
             |                                                  |
@@ -69,6 +75,13 @@ one capture frame
                                 |
                    overlay / live window / history
 ```
+
+
+## v1.6 reliability changes
+
+- Web translators now verify that the OCR source text actually appeared in the source editor. If a deep-link URL is ignored by the site, RoiLingo injects the text into the visible source editor and dispatches real `input`/`change` events before waiting for the result.
+- Game overlay boxes can be edited **directly on top of the target window** while translation is running: drag to move, drag the lower-right handle to resize, `Ctrl+mouse wheel` to change opacity, and `Shift+mouse wheel` to change font size. Click **게임 오버레이 직접 편집** again to restore click-through mode.
+- GitHub bootstrap now fetches an existing `origin/main` first. If the remote was created by an earlier RoiLingo bootstrap and has unrelated history, the current release snapshot is committed on top of the remote history instead of failing with `fetch first` or force-pushing.
 
 ## Requirements
 
@@ -122,20 +135,41 @@ publish\RoiLingo-win-x64.zip
 8. Click **실시간 번역 시작**.
 9. Use **번역 기록** to inspect all results later.
 
+## Game overlay appearance
+
+The translucent click-through overlay drawn on top of the target game is independent from the separate movable live-translation window.
+
+Open **설정 / ROI → 게임 오버레이 위치/크기/투명도** and select an ROI. Each ROI stores:
+
+- horizontal / vertical offset from the automatic placement,
+- overlay width scale,
+- background opacity,
+- translation font size,
+- whether to show the OCR source,
+- whether to show provider/OCR/agreement metadata.
+
+Changes are applied immediately while monitoring is running and are saved to `settings.json`.
+
+The separate **실시간 번역 창 열기/다시 열기** button can recreate that window after it has been closed.
+
 ## Web translation result extraction
 
-Translation websites regularly change their HTML. RoiLingo therefore does not depend on one CSS selector. Version 1.3.0 attempts, in order:
+Translation websites regularly change their HTML. RoiLingo therefore does not depend on one CSS selector. Version 1.5.0 attempts, in order:
 
 1. site-specific known selectors,
-2. visible rendered DOM snapshot scoring,
-3. generic visible DOM heuristic,
-4. whole-page visible text scoring,
-5. Chromium accessibility tree,
-6. optional target-side Copy-button fallback.
+2. **painted text-node geometry**: score the actual text nodes rendered in the right translation pane instead of a parent element that may also contain language menus,
+3. **layout-anchored extraction**: locate the source sentence and score target-language text in the mirrored/right translation pane,
+4. visible rendered DOM snapshot scoring with translator-menu rejection,
+5. generic visible DOM heuristic,
+6. whole-page visible text scoring,
+7. Chromium accessibility tree,
+8. **WebView copy bridge**: intercept the exact string a site's Copy button sends to `navigator.clipboard.writeText`, without depending on the Windows clipboard,
+9. optional Windows clipboard Copy-button fallback,
+10. **rendered WebView OCR fallback**: if the translation is visibly on screen but the DOM is unreadable, capture the right pane and OCR the displayed target text with Tesseract.
 
-The Copy fallback is only a fallback. RoiLingo briefly reads the translated clipboard text and attempts to restore the previous clipboard contents so normal user clipboard use is not permanently overwritten.
+Version 1.5.0 rejects common false positives such as language menus (`한국어 / 영어 / 일본어 / 중국어 ...`) at both provider and cache boundaries. It also uses `translation-cache-hybrid-v3.json`, so incorrect results cached by older extractors are not reused. Use **번역 캐시 비우기** at any time to force the next sentence through the translators again.
 
-Use **번역 결과 읽기 테스트** before live monitoring if a web provider visually translates but RoiLingo does not show the result. The runtime log records the successful extraction method, for example `visible-dom-snapshot`, `body-text`, `accessibility-tree`, or `copy-button-clipboard`.
+Use **번역 결과 읽기 테스트** before live monitoring if a web provider visually translates but RoiLingo does not show the result. The runtime log now identifies methods such as `text-node-geometry`, `copy-bridge`, `copy-button-clipboard`, and `webview-visual-ocr`.
 
 ## API / local translation
 
@@ -210,16 +244,18 @@ Important files:
 settings.json
 api-secrets.dpapi
 api-usage.json
-translation-cache-hybrid-v1.json
+translation-cache-hybrid-v3.json
 webview2\
 history\translations-YYYY-MM-DD.jsonl
 logs\runtime-YYYY-MM-DD.log
 exports\translations-*.csv
 ```
 
-## CPU usage strategy
+## CPU usage and stale-queue strategy
 
 RoiLingo does not run OCR on every frame. It captures the target window once per cycle, crops each ROI, computes a small signature, skips unchanged regions, waits for changed text to settle, and only then runs OCR. `Accurate` OCR mode performs extra Tesseract segmentation passes and therefore costs more CPU than `Fast` or `Balanced`.
+
+Translation is not awaited inside the ROI capture loop. Each ROI owns one coalescing translation worker and a monotonically increasing revision. If OCR changes while a web translation is already running, RoiLingo does **not** interrupt the browser mid-navigation; the old result is discarded when it finishes, and only the newest pending sentence is translated next. The pending queue is therefore bounded to one item per ROI, avoiding both stale backlogs and the v1.5 failure mode where repeated cancellation left Papago/Google/DeepL with an empty source editor.
 
 ## GitHub publish
 
@@ -246,10 +282,10 @@ The publisher:
 - commits and pushes `main`,
 - waits for the Windows GitHub Actions build when available,
 - builds the Windows release zip,
-- creates/pushes `v1.3.0`,
+- creates/pushes `v1.6.1`,
 - creates the GitHub Release and uploads `RoiLingo-win-x64.zip`.
 
-Version 1.3.0 fixes the previous `fatal: Needed a single revision` failure: a brand-new repository is no longer probed with `git rev-parse --verify HEAD` under PowerShell's terminating error mode.
+Version 1.3.0+ fixes the previous `fatal: Needed a single revision` failure: a brand-new repository is no longer probed with `git rev-parse --verify HEAD` under PowerShell's terminating error mode.
 
 ## Source layout
 

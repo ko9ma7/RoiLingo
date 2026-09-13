@@ -29,6 +29,7 @@ public sealed class WebTranslatorRuntime
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            webView.CoreWebView2.Settings.IsWebMessageEnabled = true;
         }
     }
 }

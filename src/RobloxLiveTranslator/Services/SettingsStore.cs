@@ -40,7 +40,7 @@ public static class SettingsStore
 
     public static void SaveSettings(AppSettings settings)
     {
-        settings.SchemaVersion = 4;
+        settings.SchemaVersion = 5;
         Directory.CreateDirectory(AppDirectory);
         var temp = SettingsPath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(settings, JsonOptions), new UTF8Encoding(false));
@@ -86,7 +86,17 @@ public static class SettingsStore
         settings.LiveWindowFontSize = Math.Clamp(settings.LiveWindowFontSize, 12, 32);
         settings.LiveWindowMaxItems = Math.Clamp(settings.LiveWindowMaxItems, 10, 200);
         settings.ApiTimeoutMs = Math.Clamp(settings.ApiTimeoutMs, 2000, 30000);
-        settings.SchemaVersion = 4;
+
+        foreach (var roi in settings.Rois ?? [])
+        {
+            roi.OverlayWidthScale = roi.OverlayWidthScale <= 0 ? 1.0 : Math.Clamp(roi.OverlayWidthScale, 0.45, 3.0);
+            roi.OverlayOpacity = roi.OverlayOpacity <= 0 ? 0.82 : Math.Clamp(roi.OverlayOpacity, 0.10, 1.0);
+            roi.OverlayFontSize = roi.OverlayFontSize <= 0 ? 17 : Math.Clamp(roi.OverlayFontSize, 10, 42);
+            roi.OverlayOffsetX = Math.Clamp(roi.OverlayOffsetX, -1000, 1000);
+            roi.OverlayOffsetY = Math.Clamp(roi.OverlayOffsetY, -800, 800);
+        }
+
+        settings.SchemaVersion = 5;
         return settings;
     }
 
@@ -103,5 +113,5 @@ public static class SettingsStore
         }
     }
 
-    private static AppSettings CreateDefault() => new() { SchemaVersion = 4 };
+    private static AppSettings CreateDefault() => new() { SchemaVersion = 5 };
 }

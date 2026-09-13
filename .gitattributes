@@ -10,6 +10,7 @@ LICENSE text eol=lf
 *.bat text eol=crlf
 *.ps1 text eol=crlf
 *.sln text eol=crlf
+*.manifest text eol=crlf
 *.md text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf

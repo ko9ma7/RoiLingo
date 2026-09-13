@@ -29,6 +29,8 @@ public partial class MainWindow : Window
     private MonitorEngine? _monitor;
     private OverlayWindow? _overlay;
     private LiveTranslationWindow? _liveWindow;
+    private OverlaySettingsWindow? _overlaySettingsWindow;
+    private TranslationCache? _translationCache;
     private TesseractOcrService? _ocr;
     private bool _closing;
     private bool _webInitialized;
@@ -286,19 +288,21 @@ public partial class MainWindow : Window
             StatusText.Text = "OCR 모델 확인 중...";
             var models = new ModelManager();
             var progress = new Progress<string>(s => { StatusText.Text = s; AddLog("MODEL   " + s); });
-            await models.EnsureLanguagesAsync(_settings.OcrLanguages, progress);
+            await models.EnsureLanguagesAsync(BuildRequiredOcrLanguagesForSession(), progress);
 
             _ocr = new TesseractOcrService(models, _settings.OcrMode);
-            var cache = new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v1.json");
-            var translator = new MultiTranslator(providers, _settings.PreferredProvider, _settings.TranslationStrategy, _settings.ProviderWindowMs, cache);
+            _translationCache = new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v3.json");
+            var translator = new MultiTranslator(providers, _settings.PreferredProvider, _settings.TranslationStrategy, _settings.ProviderWindowMs, _translationCache);
             translator.Diagnostic += message => Dispatcher.Invoke(() => AddLog("TRANS   " + message));
 
-            _overlay = new OverlayWindow(_targetHwnd, _settings);
+            _overlay = new OverlayWindow(_targetHwnd, _settings, SaveAll);
             _overlay.Show();
             EnsureLiveWindow(showEvenWhenDisabled: false);
 
             _monitor = new MonitorEngine(_targetHwnd, _settings, new WindowCaptureService(), _ocr, translator);
             _monitor.Status += msg => Dispatcher.Invoke(() => { StatusText.Text = msg; AddLog("STATUS  " + msg); });
+            _monitor.TranslationPending += pending => Dispatcher.Invoke(() => OnTranslationPending(pending));
+            _monitor.TranslationCleared += roiId => Dispatcher.Invoke(() => OnTranslationCleared(roiId));
             _monitor.TranslationUpdated += update => Dispatcher.Invoke(() => OnTranslation(update));
             _monitor.Start();
             StatusText.Text = "실시간 번역 실행 중";
@@ -310,6 +314,31 @@ public partial class MainWindow : Window
             MessageBox.Show(ex.Message, "시작 실패", MessageBoxButton.OK, MessageBoxImage.Error);
             await StopInternalAsync();
         }
+    }
+
+    private string BuildRequiredOcrLanguagesForSession()
+    {
+        var languages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var lang in ModelManager.ParseLanguages(_settings.OcrLanguages)) languages.Add(lang);
+        foreach (var roi in _settings.Rois)
+        {
+            if (!string.IsNullOrWhiteSpace(roi.OcrLanguagesOverride))
+                foreach (var lang in ModelManager.ParseLanguages(roi.OcrLanguagesOverride!)) languages.Add(lang);
+        }
+
+        // Web extraction has a rendered-screen OCR fallback. Download its target-language model
+        // once at startup so a visible translation can still be read if the site's DOM changes.
+        if (StrategyUsesWeb())
+        {
+            languages.Add(WebVisualOcrFallback.MapTesseractLanguage(_settings.TargetLanguage));
+            foreach (var roi in _settings.Rois)
+            {
+                if (!string.IsNullOrWhiteSpace(roi.TargetLanguageOverride))
+                    languages.Add(WebVisualOcrFallback.MapTesseractLanguage(roi.TargetLanguageOverride!));
+            }
+        }
+
+        return string.Join('+', languages);
     }
 
     private IEnumerable<ITranslationProvider> CreateTranslationProviders()
@@ -370,6 +399,8 @@ public partial class MainWindow : Window
 
             StatusText.Text = "번역 웹 결과 읽기 테스트 중...";
             var target = _settings.TargetLanguage;
+            var visualOcrLanguage = WebVisualOcrFallback.MapTesseractLanguage(target);
+            await new ModelManager().EnsureLanguagesAsync(visualOcrLanguage);
             const string testText = "Hello. This is a RoiLingo translation test.";
             var lines = new List<string>();
             foreach (var provider in providers)
@@ -503,6 +534,74 @@ public partial class MainWindow : Window
         _liveWindow?.Activate();
     }
 
+
+    private void ToggleOverlayEditModeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_overlay is null || !_overlay.IsLoaded)
+        {
+            MessageBox.Show("게임 오버레이 직접 편집은 실시간 번역 실행 중에 사용할 수 있습니다. 먼저 실시간 번역을 시작하세요.",
+                "오버레이 직접 편집", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var enable = !_overlay.EditMode;
+        _overlay.SetEditMode(enable);
+        OverlayEditModeButton.Content = enable ? "게임 오버레이 편집 완료" : "게임 오버레이 직접 편집";
+        StatusText.Text = enable
+            ? "오버레이 편집 모드: 번역 박스를 드래그해 이동하고, 우하단 핸들/휠로 크기·투명도를 조절하세요."
+            : "오버레이 편집 완료. 다시 클릭 통과 모드로 전환했습니다.";
+        AddLog(enable ? "OVERLAY 직접 편집 모드 ON" : "OVERLAY 직접 편집 모드 OFF");
+    }
+    private void OpenOverlaySettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        SyncUiToSettings();
+        if (_settings.Rois.Count == 0)
+        {
+            MessageBox.Show("먼저 ROI를 하나 이상 만들어 주세요.", "게임 오버레이 설정",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (_overlaySettingsWindow is { IsLoaded: true })
+        {
+            _overlaySettingsWindow.Activate();
+            return;
+        }
+
+        _overlaySettingsWindow = new OverlaySettingsWindow(
+            _settings,
+            SaveAll,
+            () => _overlay?.RefreshSettings());
+        _overlaySettingsWindow.Owner = this;
+        _overlaySettingsWindow.Closed += (_, _) => _overlaySettingsWindow = null;
+        _overlaySettingsWindow.Show();
+    }
+
+    private async void ClearTranslationCacheButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_translationCache is not null)
+                await _translationCache.ClearAsync();
+
+            Directory.CreateDirectory(SettingsStore.AppDirectory);
+            foreach (var path in Directory.EnumerateFiles(SettingsStore.AppDirectory, "translation-cache-*.json"))
+            {
+                try { File.Delete(path); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+
+            AddLog("CACHE   번역 캐시 초기화 완료");
+            StatusText.Text = "번역 캐시를 비웠습니다. 다음 문장은 웹/API에서 다시 번역합니다.";
+        }
+        catch (Exception ex)
+        {
+            AddLog("CACHE   초기화 실패: " + ex.Message);
+            MessageBox.Show(ex.Message, "번역 캐시 초기화 실패", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void EnsureLiveWindow(bool showEvenWhenDisabled)
     {
         if (!showEvenWhenDisabled && !_settings.ShowLiveWindow) return;
@@ -518,6 +617,25 @@ public partial class MainWindow : Window
     }
 
     private async void StopButton_Click(object sender, RoutedEventArgs e) => await StopInternalAsync();
+
+    private void OnTranslationPending(RoiTranslationPending pending)
+    {
+        // Do not keep showing the previous sentence while a newer OCR result is being translated.
+        _overlay?.ClearTranslation(pending.RoiId);
+        StatusText.Text = $"{pending.RoiName}: 번역 중...";
+        AddLog($"PENDING {pending.RoiName,-12} OCR={pending.OcrConfidence:P0} | {pending.SourceText}");
+    }
+
+    private void OnTranslationCleared(Guid roiId)
+    {
+        _overlay?.ClearTranslation(roiId);
+        var roi = _settings.Rois.FirstOrDefault(r => r.Id == roiId);
+        if (roi is not null)
+        {
+            StatusText.Text = $"{roi.Name}: 화면에서 문장이 사라짐";
+            AddLog($"CLEAR   {roi.Name,-12} 화면에서 기존 문장 제거");
+        }
+    }
 
     private async void OnTranslation(RoiTranslationUpdate update)
     {
@@ -582,6 +700,7 @@ public partial class MainWindow : Window
         _ocr?.Dispose();
         _ocr = null;
         SetRunningUi(false);
+        OverlayEditModeButton.Content = "게임 오버레이 직접 편집";
         StatusText.Text = "중지됨";
         AddLog("STOP    실시간 감시 중지");
     }
@@ -764,6 +883,11 @@ public partial class MainWindow : Window
         {
             _liveWindow.Close();
             _liveWindow = null;
+        }
+        if (_overlaySettingsWindow is not null)
+        {
+            _overlaySettingsWindow.Close();
+            _overlaySettingsWindow = null;
         }
         SyncUiToSettings();
         SaveSecretsFromUi();

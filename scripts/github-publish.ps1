@@ -3,7 +3,7 @@ $RepoName = "RoiLingo"
 $Visibility = "public"
 $Description = "Windows ROI live OCR translator with Tesseract, WebView translators, official APIs, and LibreTranslate/Argos support."
 $Topics = @("windows", "wpf", "csharp", "ocr", "tesseract", "translation", "webview2", "roblox", "libretranslate", "argos-translate")
-$Tag = "v1.3.0"
+$Tag = "v1.6.1"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $root
 
@@ -112,7 +112,7 @@ if ($hasChanges) {
     if (-not $hasHead -and (Test-Path $packedRefs)) {
         $hasHead = Select-String -Path $packedRefs -Pattern " refs/heads/main$" -Quiet
     }
-    if ($hasHead) { git commit -m "feat: add hybrid web API translation and quota rotation" | Out-Host }
+    if ($hasHead) { git commit -m "fix: repair translation worker build and preserve latest-wins flow" | Out-Host }
     else { git commit -m "feat: initialize RoiLingo" | Out-Host }
     if ($LASTEXITCODE -ne 0) { Fail "Git commit failed." "git status; git add -A; git commit -m 'feat: initialize RoiLingo'" }
 }
@@ -136,13 +136,45 @@ if ($remoteNames -notcontains "origin") {
     if ($origin -notmatch [regex]::Escape($FullRepo)) { git remote set-url origin "https://github.com/$FullRepo.git" }
 }
 
-gh repo edit $FullRepo --description $Description
-foreach ($topic in $Topics) { gh repo edit $FullRepo --add-topic $topic *> $null }
-Ok "Repository About/Topics updated"
+if (Test-NativeSuccess { gh repo edit $FullRepo --description $Description }) {
+    foreach ($topic in $Topics) { gh repo edit $FullRepo --add-topic $topic *> $null }
+    Ok "Repository About/Topics updated"
+} else {
+    Warn "Repository About/Topics update failed. This does not block source publishing."
+}
+
+Step "Synchronize existing remote"
+$remoteMainExists = Test-NativeSuccess { git ls-remote --exit-code --heads origin main }
+if ($remoteMainExists) {
+    git fetch origin main --prune | Out-Host
+    if ($LASTEXITCODE -ne 0) { Fail "Could not fetch origin/main." "git fetch origin main --prune" }
+
+    $localSha = (git rev-parse main).Trim()
+    $remoteSha = (git rev-parse origin/main).Trim()
+    if ($localSha -ne $remoteSha) {
+        # Previous bootstrap attempts may already have created RoiLingo on GitHub from a different
+        # local folder, producing unrelated root commits. Do not force-push or delete remote history.
+        # Rebase the current complete working tree onto origin/main as one normal sync commit.
+        Warn "Remote main already contains history. Rebasing this release snapshot on top of origin/main..."
+        git reset --soft origin/main
+        if ($LASTEXITCODE -ne 0) { Fail "Could not align local history with origin/main." "git fetch origin main; git reset --soft origin/main" }
+        git add -A
+        git diff --cached --quiet
+        if ($LASTEXITCODE -ne 0) {
+            git commit -m "chore: sync RoiLingo $Tag" | Out-Host
+            if ($LASTEXITCODE -ne 0) { Fail "Sync commit failed." "git status; git add -A; git commit -m 'chore: sync RoiLingo $Tag'" }
+        }
+        Ok "Local release snapshot is based on existing origin/main"
+    } else {
+        Ok "Local main already matches origin/main"
+    }
+} else {
+    Ok "Remote main does not exist yet"
+}
 
 Step "Push main"
 git push -u origin main
-if ($LASTEXITCODE -ne 0) { Fail "Push failed." "git remote -v; git status; git push -u origin main" }
+if ($LASTEXITCODE -ne 0) { Fail "Push failed." "git fetch origin main --prune; git status; git log --oneline --decorate -5; git push -u origin main" }
 Ok "main pushed"
 
 Step "GitHub Actions"

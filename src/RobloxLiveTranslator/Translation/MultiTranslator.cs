@@ -169,7 +169,13 @@ public sealed class MultiTranslator
             var text = await provider.TranslateAsync(source, target, ct);
             sw.Stop();
             if (string.IsNullOrWhiteSpace(text)) return null;
-            return new ProviderTranslation(provider.Name, text.Trim(), sw.Elapsed);
+            text = text.Trim();
+            if (!TranslationTextValidator.IsUsable(source, text))
+            {
+                Diagnostic?.Invoke($"{provider.Name}: 번역 결과가 페이지 UI/실패 문구로 판단되어 폐기됨");
+                return null;
+            }
+            return new ProviderTranslation(provider.Name, text, sw.Elapsed);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

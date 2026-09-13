@@ -8,6 +8,14 @@ public sealed record TranslationBundle(
     IReadOnlyList<ProviderTranslation> Results,
     double AgreementScore);
 
+
+public sealed record RoiTranslationPending(
+    Guid RoiId,
+    string RoiName,
+    string SourceText,
+    float OcrConfidence,
+    DateTimeOffset Timestamp);
+
 public sealed record RoiTranslationUpdate(
     Guid RoiId,
     string RoiName,

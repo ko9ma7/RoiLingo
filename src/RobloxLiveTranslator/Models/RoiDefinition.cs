@@ -14,6 +14,16 @@ public sealed class RoiDefinition
     public bool ShowOverlay { get; set; } = true;
     public bool EventMode { get; set; }
 
+    // Per-ROI game overlay presentation. Offsets are relative to the automatic
+    // below/above placement and are expressed in device-independent pixels.
+    public double OverlayOffsetX { get; set; }
+    public double OverlayOffsetY { get; set; }
+    public double OverlayWidthScale { get; set; } = 1.0;
+    public double OverlayOpacity { get; set; } = 0.82;
+    public double OverlayFontSize { get; set; } = 17;
+    public bool OverlayShowSource { get; set; } = true;
+    public bool OverlayShowMeta { get; set; } = true;
+
     public RoiDefinition Clone() => new()
     {
         Id = Id,
@@ -26,6 +36,13 @@ public sealed class RoiDefinition
         OcrLanguagesOverride = OcrLanguagesOverride,
         TargetLanguageOverride = TargetLanguageOverride,
         ShowOverlay = ShowOverlay,
-        EventMode = EventMode
+        EventMode = EventMode,
+        OverlayOffsetX = OverlayOffsetX,
+        OverlayOffsetY = OverlayOffsetY,
+        OverlayWidthScale = OverlayWidthScale,
+        OverlayOpacity = OverlayOpacity,
+        OverlayFontSize = OverlayFontSize,
+        OverlayShowSource = OverlayShowSource,
+        OverlayShowMeta = OverlayShowMeta
     };
 }
