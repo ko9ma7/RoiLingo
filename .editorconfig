@@ -1,0 +1,11 @@
+root = true
+
+[*.cs]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+dotnet_diagnostic.IDE0290.severity = silent
+
+[*.{xaml,xml,md,yml,yaml,ps1,cmd,bat}]
+charset = utf-8
+insert_final_newline = true

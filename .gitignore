@@ -1,0 +1,30 @@
+# Visual Studio / .NET
+.vs/
+**/bin/
+**/obj/
+TestResults/
+artifacts/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local app output / secrets
+*.dpapi
+api-usage.json
+translation-cache*.json
+history/
+logs/
+exports/
+*.pfx
+*.snk
+.env
+.env.*
+!/.env.example
+
+# OS / tooling
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

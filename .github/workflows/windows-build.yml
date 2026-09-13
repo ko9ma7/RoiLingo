@@ -1,0 +1,45 @@
+name: Windows Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore RobloxLiveTranslator.sln
+
+      - name: Build
+        run: dotnet build RobloxLiveTranslator.sln -c Release -p:Platform=x64 --no-restore
+
+      - name: Publish win-x64
+        shell: pwsh
+        run: |
+          dotnet publish src/RobloxLiveTranslator/RobloxLiveTranslator.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:Platform=x64 -o publish/win-x64
+          Compress-Archive -Path publish/win-x64/* -DestinationPath publish/RoiLingo-win-x64.zip -CompressionLevel Optimal
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoiLingo-win-x64
+          path: publish/RoiLingo-win-x64.zip
+          if-no-files-found: error
+          retention-days: 14

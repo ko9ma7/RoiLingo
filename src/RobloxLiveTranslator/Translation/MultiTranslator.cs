@@ -1,0 +1,213 @@
+using RobloxLiveTranslator.Models;
+
+namespace RobloxLiveTranslator.Translation;
+
+public sealed class MultiTranslator
+{
+    private readonly IReadOnlyList<ITranslationProvider> _providers;
+    private readonly string _preferred;
+    private readonly string _strategy;
+    private readonly int _windowMs;
+    private readonly TranslationCache _cache;
+    private int _rotation;
+
+    public MultiTranslator(
+        IEnumerable<ITranslationProvider> providers,
+        string preferred,
+        string strategy,
+        int windowMs,
+        TranslationCache cache)
+    {
+        _providers = providers.Where(p => p.IsConfigured).ToArray();
+        _preferred = string.IsNullOrWhiteSpace(preferred) ? "Auto" : preferred;
+        _strategy = string.IsNullOrWhiteSpace(strategy) ? "HybridBalanced" : strategy;
+        _windowMs = Math.Clamp(windowMs, 1200, 12000);
+        _cache = cache;
+    }
+
+    public bool HasProvider => _providers.Count > 0;
+    public event Action<string>? Diagnostic;
+
+    public async Task<TranslationBundle> TranslateAsync(string source, string targetLanguage, CancellationToken cancellationToken)
+    {
+        if (_cache.TryGet(source, targetLanguage, out var cachedProvider, out var cachedText))
+            return new TranslationBundle(cachedProvider + " (cache)", cachedText,
+                [new ProviderTranslation(cachedProvider + " (cache)", cachedText, TimeSpan.Zero)], 1);
+
+        var scheduled = SelectProvidersForRequest(source.Length);
+        if (scheduled.Count == 0)
+            return new TranslationBundle("없음", "[활성화된 번역 제공자가 없습니다]", [], 0);
+
+        Diagnostic?.Invoke("이번 번역: " + string.Join(", ", scheduled.Select(x => x.Name)));
+
+        var hardDeadlineMs = Math.Max(12000, _windowMs + 5000);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        linked.CancelAfter(TimeSpan.FromMilliseconds(hardDeadlineMs + 500));
+        var tasks = scheduled.Select(p => TranslateSafeAsync(p, source, targetLanguage, linked.Token)).ToArray();
+        var timer = Stopwatch.StartNew();
+        long? crossCheckReadyAtMs = null;
+
+        List<ProviderTranslation> completed;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            completed = Completed(tasks);
+            var preferredReady = IsAutoPreferred()
+                ? completed.Count > 0
+                : completed.Any(x => x.Provider.Equals(_preferred, StringComparison.OrdinalIgnoreCase));
+            var enoughForCrossCheck = completed.Count >= Math.Min(2, scheduled.Count);
+            var allFinished = tasks.All(t => t.IsCompleted);
+
+            if (preferredReady && enoughForCrossCheck && crossCheckReadyAtMs is null)
+                crossCheckReadyAtMs = timer.ElapsedMilliseconds;
+
+            var graceExpired = crossCheckReadyAtMs is not null
+                && timer.ElapsedMilliseconds - crossCheckReadyAtMs.Value >= 750;
+            var normalWindowExpiredWithResult = completed.Count > 0 && timer.ElapsedMilliseconds >= _windowMs;
+            if (allFinished || graceExpired || normalWindowExpiredWithResult || timer.ElapsedMilliseconds >= hardDeadlineMs)
+                break;
+
+            var pending = tasks.Where(t => !t.IsCompleted).Cast<Task>().ToArray();
+            if (pending.Length == 0) break;
+            await Task.WhenAny(pending.Append(Task.Delay(150, cancellationToken)));
+        }
+
+        completed = Completed(tasks);
+        if (completed.Count == 0 && tasks.Any(t => !t.IsCompleted))
+        {
+            var remaining = Math.Max(0, hardDeadlineMs - (int)timer.ElapsedMilliseconds);
+            if (remaining > 0)
+                await Task.WhenAny(Task.WhenAll(tasks), Task.Delay(remaining, cancellationToken));
+            completed = Completed(tasks);
+        }
+
+        linked.Cancel();
+        if (completed.Count == 0)
+            return new TranslationBundle("실패", "[활성화된 번역 제공자에서 결과를 얻지 못했습니다]", [], 0);
+
+        var selected = SelectPreferred(completed, targetLanguage);
+        var agreement = Agreement(completed);
+        await _cache.PutAsync(source, targetLanguage, selected.Provider, selected.Text);
+        return new TranslationBundle(selected.Provider, selected.Text, completed, agreement);
+    }
+
+    private IReadOnlyList<ITranslationProvider> SelectProvidersForRequest(int sourceCharacters)
+    {
+        var all = _providers.Where(p => p.IsConfigured).Where(p =>
+        {
+            if (p is not IQuotaAwareTranslationProvider quotaAware) return true;
+            var allowed = quotaAware.CanSchedule(sourceCharacters, out var reason);
+            if (!allowed) Diagnostic?.Invoke($"{p.Name}: 사용량 예산 때문에 이번 요청에서 제외 - {reason}");
+            return allowed;
+        }).ToArray();
+        if (all.Length == 0) return [];
+
+        if (_strategy.Equals("MaximumCrossCheck", StringComparison.OrdinalIgnoreCase))
+            return all;
+        if (_strategy.Equals("WebOnly", StringComparison.OrdinalIgnoreCase))
+            return all.Where(p => p.Kind == TranslationProviderKind.Web).ToArray();
+        if (_strategy.Equals("ApiOnly", StringComparison.OrdinalIgnoreCase))
+            return PickRotating(all.Where(p => p.Kind != TranslationProviderKind.Web).ToArray(), 2);
+
+        // HybridBalanced: one API/local provider + one web provider. This preserves cross-checking
+        // while avoiding spending every paid API credit on every OCR event.
+        var api = all.Where(p => p.Kind != TranslationProviderKind.Web).ToArray();
+        var web = all.Where(p => p.Kind == TranslationProviderKind.Web).ToArray();
+        var result = new List<ITranslationProvider>(2);
+
+        var preferred = all.FirstOrDefault(p => !IsAutoPreferred() && p.Name.Equals(_preferred, StringComparison.OrdinalIgnoreCase));
+        if (preferred is not null) result.Add(preferred);
+
+        if (api.Length > 0 && result.All(x => x.Kind == TranslationProviderKind.Web))
+            result.Add(PickOne(api));
+        if (web.Length > 0 && result.All(x => x.Kind != TranslationProviderKind.Web))
+            result.Add(PickOne(web));
+
+        if (result.Count == 0)
+        {
+            if (api.Length > 0) result.Add(PickOne(api));
+            if (web.Length > 0) result.Add(PickOne(web));
+        }
+        else if (result.Count == 1)
+        {
+            var pool = result[0].Kind == TranslationProviderKind.Web ? api : web;
+            if (pool.Length > 0) result.Add(PickOne(pool));
+        }
+
+        return result.DistinctBy(x => x.Name, StringComparer.OrdinalIgnoreCase).Take(2).ToArray();
+    }
+
+    private IReadOnlyList<ITranslationProvider> PickRotating(IReadOnlyList<ITranslationProvider> providers, int count)
+    {
+        if (providers.Count <= count) return providers.ToArray();
+        var start = Math.Abs(Interlocked.Increment(ref _rotation)) % providers.Count;
+        return Enumerable.Range(0, count).Select(i => providers[(start + i) % providers.Count]).ToArray();
+    }
+
+    private ITranslationProvider PickOne(IReadOnlyList<ITranslationProvider> providers)
+    {
+        if (providers.Count == 1) return providers[0];
+        var index = Math.Abs(Interlocked.Increment(ref _rotation)) % providers.Count;
+        return providers[index];
+    }
+
+    private bool IsAutoPreferred() => _preferred.Equals("Auto", StringComparison.OrdinalIgnoreCase) ||
+                                      _preferred.StartsWith("자동", StringComparison.OrdinalIgnoreCase);
+
+    private static List<ProviderTranslation> Completed(IEnumerable<Task<ProviderTranslation?>> tasks) =>
+        tasks.Where(t => t.IsCompletedSuccessfully)
+            .Select(t => t.Result)
+            .Where(x => x is not null)
+            .Cast<ProviderTranslation>()
+            .ToList();
+
+    private async Task<ProviderTranslation?> TranslateSafeAsync(ITranslationProvider provider, string source, string target, CancellationToken ct)
+    {
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            var text = await provider.TranslateAsync(source, target, ct);
+            sw.Stop();
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            return new ProviderTranslation(provider.Name, text.Trim(), sw.Elapsed);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Diagnostic?.Invoke($"{provider.Name}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private ProviderTranslation SelectPreferred(IReadOnlyList<ProviderTranslation> results, string target)
+    {
+        if (!IsAutoPreferred())
+        {
+            var exact = results.FirstOrDefault(x => x.Provider.Equals(_preferred, StringComparison.OrdinalIgnoreCase));
+            if (exact is not null) return exact;
+        }
+
+        var order = target.Equals("ko", StringComparison.OrdinalIgnoreCase)
+            ? new[] { "Papago API", "Papago Web", "Google API", "Google Web", "DeepL API", "DeepL Web", "LibreTranslate" }
+            : new[] { "DeepL API", "Google API", "LibreTranslate", "DeepL Web", "Google Web", "Papago API", "Papago Web" };
+        foreach (var name in order)
+        {
+            var item = results.FirstOrDefault(x => x.Provider.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (item is not null) return item;
+        }
+        return results.OrderBy(x => x.Elapsed).First();
+    }
+
+    private static double Agreement(IReadOnlyList<ProviderTranslation> results)
+    {
+        if (results.Count < 2) return 1;
+        var scores = new List<double>();
+        for (var i = 0; i < results.Count; i++)
+        for (var j = i + 1; j < results.Count; j++)
+            scores.Add(TextSimilarity.Ratio(results[i].Text, results[j].Text));
+        return scores.Count == 0 ? 1 : scores.Average();
+    }
+}
