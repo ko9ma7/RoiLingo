@@ -3,7 +3,7 @@ $RepoName = "RoiLingo"
 $Visibility = "public"
 $Description = "Windows ROI live OCR translator with Tesseract, WebView translators, official APIs, and LibreTranslate/Argos support."
 $Topics = @("windows", "wpf", "csharp", "ocr", "tesseract", "translation", "webview2", "roblox", "libretranslate", "argos-translate", "i18n", "overlay")
-$Tag = "v2.1.0"
+$Tag = "v2.1.1"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $root
 

@@ -1,13 +1,16 @@
-RoiLingo 2.1.0 source validation
+RoiLingo 2.1.1 source validation
+Generated in the ChatGPT build environment.
 
-- XAML/XML parse: 7 XAML files PASS
-- csproj XML parse: PASS
-- duplicate x:Name: PASS
-- XAML event handlers: PASS
-- v2.1 behavior contracts: PASS
-- transient/overlay regression guards: PASS
-- modified C# delimiter structure: PASS
+PASS - XAML/XML well-formedness
+PASS - XAML event handler references (46 handlers checked)
+PASS - duplicate x:Name scan
+PASS - C# delimiter/string/comment structural scan
+PASS - Web engine contract: Start explicitly calls EnsureWebEngineReadyAsync
+PASS - Web providers use dedicated WebTranslatorHostWindow controls
+PASS - Engine host is off-screen, ShowInTaskbar=false, ShowActivated=false
+PASS - Background web-engine warm-up exists and does not require Advanced Settings
+PASS - Web engine host closes during application shutdown
+PASS - project/README/tag version updated to 2.1.1
 
-Static validation errors: 0
-
-Note: this Linux container does not have the Windows WPF .NET toolchain. scripts\verify.cmd performs NuGet restore and the actual Release/x64 compilation on Windows before GitHub publishing.
+Important limitation:
+The current build environment does not contain the Windows .NET/WPF SDK, so an actual dotnet restore/build cannot be executed here. Run scripts\verify.cmd on Windows; it performs restore and Release/x64 compilation before GitHub publishing.

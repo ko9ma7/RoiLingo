@@ -37,7 +37,10 @@ public partial class MainWindow : Window
     private TranslationCache? _translationCache;
     private TesseractOcrService? _ocr;
     private bool _closing;
-    private bool _webInitialized;
+    private bool _webPreviewInitialized;
+    private bool _webEngineInitialized;
+    private WebTranslatorHostWindow? _webHost;
+    private readonly SemaphoreSlim _webEngineInitGate = new(1, 1);
     private bool _logPersistenceWarningShown;
 
     public MainWindow()
@@ -59,10 +62,14 @@ public partial class MainWindow : Window
         RefreshApiUsageText();
         StatusText.Text = UiText.Get(_settings.UiLanguage, "ready");
 
-        // Keep startup lightweight. WebView2 is initialized lazily when translation starts
-        // or when the user explicitly opens/tests the web translator settings.
-        if (_settings.WebProviders.Papago || _settings.WebProviders.Google || _settings.WebProviders.DeepL)
-            AddLog("WEB     웹 번역기는 실시간 번역 시작 시 준비됩니다.");
+        // The translation engine has its own off-screen WebView2 host. It does not depend on the
+        // advanced-settings panel being opened. Warm it in the background so the first event can
+        // translate quickly, but never block application startup.
+        if (StrategyUsesWeb() && HasEnabledWebProvider())
+        {
+            AddLog("WEBENG  설정 창과 독립된 웹 번역 엔진을 백그라운드에서 준비합니다.");
+            _ = PrepareWebEngineInBackgroundAsync();
+        }
     }
 
     private void LoadUi()
@@ -244,18 +251,106 @@ public partial class MainWindow : Window
 
     private bool StrategyUsesWeb() => !_settings.TranslationStrategy.Equals("ApiOnly", StringComparison.OrdinalIgnoreCase);
 
-    private async Task EnsureWebViewReadyAsync(WebView2 view)
+    private bool HasEnabledWebProvider() =>
+        _settings.WebProviders.Papago || _settings.WebProviders.Google || _settings.WebProviders.DeepL;
+
+    private WebTranslatorHostWindow GetOrCreateWebHost()
     {
-        if (view.CoreWebView2 is not null) return;
-        var previousMainTab = MainTabs.SelectedIndex;
-        var previousSiteTab = TranslatorSiteTabs.SelectedIndex;
+        if (_webHost is { IsLoaded: true }) return _webHost;
+        _webHost = new WebTranslatorHostWindow();
+        return _webHost;
+    }
+
+    private async Task PrepareWebEngineInBackgroundAsync()
+    {
         try
         {
+            await Task.Delay(350);
+            await EnsureWebEngineReadyAsync(navigateHome: false);
+            AddLog("WEBENG  백그라운드 웹 번역 엔진 준비 완료");
+        }
+        catch (Exception ex)
+        {
+            AddLog("WEBENG  백그라운드 준비 실패: " + ex.Message);
+        }
+    }
+
+    private async Task EnsureWebEngineReadyAsync(bool navigateHome)
+    {
+        if (!StrategyUsesWeb() || !HasEnabledWebProvider()) return;
+
+        if (!Dispatcher.CheckAccess())
+        {
+            await Dispatcher.InvokeAsync(() => EnsureWebEngineReadyAsync(navigateHome)).Task.Unwrap();
+            return;
+        }
+
+        await _webEngineInitGate.WaitAsync();
+        try
+        {
+            var host = GetOrCreateWebHost();
+            await host.EnsureShownAsync();
+
+            var views = new List<WebView2>(3);
+            if (_settings.WebProviders.Papago) views.Add(host.Papago);
+            if (_settings.WebProviders.Google) views.Add(host.Google);
+            if (_settings.WebProviders.DeepL) views.Add(host.DeepL);
+
+            await _webRuntime.InitializeAsync(views);
+            _webEngineInitialized = views.Count > 0 && views.All(v => v.CoreWebView2 is not null);
+            if (!_webEngineInitialized)
+                throw new InvalidOperationException("백그라운드 WebView2 번역 엔진 초기화에 실패했습니다.");
+
+            if (navigateHome)
+            {
+                if (_settings.WebProviders.Papago && host.Papago.CoreWebView2 is not null)
+                    host.Papago.CoreWebView2.Navigate(WebTranslationScripts.PapagoHome);
+                if (_settings.WebProviders.Google && host.Google.CoreWebView2 is not null)
+                    host.Google.CoreWebView2.Navigate(WebTranslationScripts.GoogleHome);
+                if (_settings.WebProviders.DeepL && host.DeepL.CoreWebView2 is not null)
+                    host.DeepL.CoreWebView2.Navigate(WebTranslationScripts.DeepLHome);
+            }
+        }
+        finally
+        {
+            _webEngineInitGate.Release();
+        }
+    }
+
+    private async Task EnsureEngineViewReadyAsync(WebView2 view)
+    {
+        if (view.CoreWebView2 is not null) return;
+        await EnsureWebEngineReadyAsync(navigateHome: false);
+        if (view.CoreWebView2 is null)
+            throw new InvalidOperationException("웹 번역 엔진이 준비되지 않았습니다.");
+    }
+
+    // These WebViews are only a visible diagnostics/manual-preview surface in Advanced Settings.
+    // Translation itself uses WebTranslatorHostWindow and therefore never depends on this panel.
+    private async Task InitializeVisibleWebPreviewAsync(bool navigateHome)
+    {
+        var previousMainTab = MainTabs.SelectedIndex;
+        var previousSiteTab = TranslatorSiteTabs.SelectedIndex;
+        var panelWasVisible = AdvancedPanel.Visibility == Visibility.Visible;
+        try
+        {
+            if (!panelWasVisible) return;
             MainTabs.SelectedIndex = 1;
-            TranslatorSiteTabs.SelectedIndex = view == PapagoWebView ? 0 : view == GoogleWebView ? 1 : 2;
             UpdateLayout();
-            await _webRuntime.InitializeAsync([view]);
-            _webInitialized = PapagoWebView.CoreWebView2 is not null || GoogleWebView.CoreWebView2 is not null || DeepLWebView.CoreWebView2 is not null;
+            var views = new WebView2[] { PapagoWebView, GoogleWebView, DeepLWebView };
+            for (var i = 0; i < views.Length; i++)
+            {
+                TranslatorSiteTabs.SelectedIndex = i;
+                UpdateLayout();
+                await _webRuntime.InitializeAsync([views[i]]);
+            }
+            _webPreviewInitialized = true;
+            if (navigateHome)
+            {
+                if (PapagoWebView.CoreWebView2 is not null) PapagoWebView.CoreWebView2.Navigate(WebTranslationScripts.PapagoHome);
+                if (GoogleWebView.CoreWebView2 is not null) GoogleWebView.CoreWebView2.Navigate(WebTranslationScripts.GoogleHome);
+                if (DeepLWebView.CoreWebView2 is not null) DeepLWebView.CoreWebView2.Navigate(WebTranslationScripts.DeepLHome);
+            }
         }
         finally
         {
@@ -271,12 +366,8 @@ public partial class MainWindow : Window
             await Task.Delay(700);
             var progress = new Progress<string>(message => Dispatcher.Invoke(() => AddLog("WARMUP  " + message)));
             await models.EnsureLanguagesAsync(BuildRequiredOcrLanguagesForSession(), progress);
-            if (StrategyUsesWeb())
-            {
-                if (_settings.WebProviders.Papago) await Dispatcher.InvokeAsync(() => EnsureWebViewReadyAsync(PapagoWebView)).Task.Unwrap();
-                if (_settings.WebProviders.Google) await Dispatcher.InvokeAsync(() => EnsureWebViewReadyAsync(GoogleWebView)).Task.Unwrap();
-                if (_settings.WebProviders.DeepL) await Dispatcher.InvokeAsync(() => EnsureWebViewReadyAsync(DeepLWebView)).Task.Unwrap();
-            }
+            if (StrategyUsesWeb() && HasEnabledWebProvider())
+                await EnsureWebEngineReadyAsync(navigateHome: false);
             Dispatcher.Invoke(() => AddLog("WARMUP  백그라운드 준비 완료"));
         }
         catch (Exception ex)
@@ -287,32 +378,10 @@ public partial class MainWindow : Window
 
     private async Task InitializeWebTranslatorsAsync(bool navigateHome)
     {
-        var previousMainTab = MainTabs.SelectedIndex;
-        var previousSiteTab = TranslatorSiteTabs.SelectedIndex;
-        try
-        {
-            MainTabs.SelectedIndex = 1;
-            UpdateLayout();
-            var views = new WebView2[] { PapagoWebView, GoogleWebView, DeepLWebView };
-            for (var i = 0; i < views.Length; i++)
-            {
-                TranslatorSiteTabs.SelectedIndex = i;
-                UpdateLayout();
-                await _webRuntime.InitializeAsync([views[i]]);
-            }
-            _webInitialized = true;
-            if (navigateHome)
-            {
-                PapagoWebView.Source = new Uri(WebTranslationScripts.PapagoHome);
-                GoogleWebView.Source = new Uri(WebTranslationScripts.GoogleHome);
-                DeepLWebView.Source = new Uri(WebTranslationScripts.DeepLHome);
-            }
-        }
-        finally
-        {
-            TranslatorSiteTabs.SelectedIndex = previousSiteTab < 0 ? 0 : previousSiteTab;
-            MainTabs.SelectedIndex = previousMainTab < 0 ? 0 : previousMainTab;
-        }
+        // Always initialize the real background engine first. The visible settings WebViews are only
+        // a manual preview and are initialized only when the advanced panel is actually open.
+        await EnsureWebEngineReadyAsync(navigateHome);
+        await InitializeVisibleWebPreviewAsync(navigateHome);
     }
 
     private async void InitializeWebTranslatorsButton_Click(object sender, RoutedEventArgs e)
@@ -394,8 +463,17 @@ public partial class MainWindow : Window
             SetRunningUi(true);
             if (AdvancedPanel.Visibility == Visibility.Visible) CloseAdvancedSettings();
 
-            // Keep Start responsive: WebView2 and OCR models are initialized lazily on first use.
-            // Optional warm-up begins only after monitoring is already running.
+            // Web translation must work even when Advanced Settings has never been opened.
+            // The off-screen engine host is independent from the collapsible settings UI. A background
+            // warm-up normally makes this instant; if it is not ready yet, Start waits only for the
+            // engine itself so the first captured event is not lost.
+            if (StrategyUsesWeb() && HasEnabledWebProvider())
+            {
+                StatusText.Text = "웹 번역 엔진 준비 중...";
+                await EnsureWebEngineReadyAsync(navigateHome: false);
+                AddLog("WEBENG  시작 버튼에서 웹 번역 엔진 준비 확인");
+            }
+
             var providers = CreateTranslationProviders().Where(x => x.IsConfigured).ToArray();
             if (providers.Length == 0)
                 throw new InvalidOperationException("활성화되고 설정이 완료된 번역 Provider가 없습니다. Web 또는 API/로컬 설정을 확인하세요.");
@@ -473,23 +551,26 @@ public partial class MainWindow : Window
 
     private IEnumerable<ITranslationProvider> CreateWebProviders()
     {
+        if (!HasEnabledWebProvider()) yield break;
+        var host = GetOrCreateWebHost();
+
         if (_settings.WebProviders.Papago)
             yield return new WebViewTranslationProvider(
-                "Papago Web", PapagoWebView, WebTranslationScripts.PapagoUrl,
+                "Papago Web", host.Papago, WebTranslationScripts.PapagoUrl,
                 WebTranslationScripts.PapagoResult, true, _settings.WebTranslationTimeoutMs,
-                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message), () => EnsureWebViewReadyAsync(PapagoWebView));
+                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message), () => EnsureEngineViewReadyAsync(host.Papago));
 
         if (_settings.WebProviders.Google)
             yield return new WebViewTranslationProvider(
-                "Google Web", GoogleWebView, WebTranslationScripts.GoogleUrl,
+                "Google Web", host.Google, WebTranslationScripts.GoogleUrl,
                 WebTranslationScripts.GoogleResult, true, _settings.WebTranslationTimeoutMs,
-                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message), () => EnsureWebViewReadyAsync(GoogleWebView));
+                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message), () => EnsureEngineViewReadyAsync(host.Google));
 
         if (_settings.WebProviders.DeepL)
             yield return new WebViewTranslationProvider(
-                "DeepL Web", DeepLWebView, WebTranslationScripts.DeepLUrl,
+                "DeepL Web", host.DeepL, WebTranslationScripts.DeepLUrl,
                 WebTranslationScripts.DeepLResult, true, _settings.WebTranslationTimeoutMs,
-                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message), () => EnsureWebViewReadyAsync(DeepLWebView));
+                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message), () => EnsureEngineViewReadyAsync(host.DeepL));
     }
 
     private IEnumerable<ITranslationProvider> CreateApiProviders()
@@ -512,7 +593,7 @@ public partial class MainWindow : Window
         try
         {
             SyncUiToSettings();
-            if (!_webInitialized) await InitializeWebTranslatorsAsync(navigateHome: false);
+            if (!_webEngineInitialized) await EnsureWebEngineReadyAsync(navigateHome: false);
 
             var providers = CreateWebProviders().ToArray();
             if (providers.Length == 0)
@@ -709,6 +790,8 @@ public partial class MainWindow : Window
 
         AdvancedPanel.Visibility = Visibility.Visible;
         AdvancedSettingsButton.Content = "설정 닫기";
+        if (StrategyUsesWeb() && HasEnabledWebProvider())
+            _ = PrepareVisibleWebPreviewOnSettingsOpenAsync();
         MinWidth = AdvancedWindowMinWidth;
         MinHeight = AdvancedWindowMinHeight;
 
@@ -717,6 +800,19 @@ public partial class MainWindow : Window
         Height = Math.Min(Math.Max(Height, 840), Math.Max(AdvancedWindowMinHeight, work.Height - 40));
         ClampWindowToWorkArea(work);
         MainTabs.Focus();
+    }
+
+    private async Task PrepareVisibleWebPreviewOnSettingsOpenAsync()
+    {
+        try
+        {
+            await InitializeVisibleWebPreviewAsync(navigateHome: true);
+            AddLog("WEBUI   고급 설정의 웹 번역 미리보기 준비 완료");
+        }
+        catch (Exception ex)
+        {
+            AddLog("WEBUI   미리보기 준비 실패: " + ex.Message);
+        }
     }
 
     private void CloseAdvancedSettingsButton_Click(object sender, RoutedEventArgs e) => CloseAdvancedSettings();
@@ -1102,6 +1198,11 @@ public partial class MainWindow : Window
             e.Cancel = true;
             _closing = true;
             await StopInternalAsync();
+            if (_webHost is not null)
+            {
+                _webHost.Close();
+                _webHost = null;
+            }
             SyncUiToSettings();
             SaveSecretsFromUi();
             SaveAll();
@@ -1118,6 +1219,11 @@ public partial class MainWindow : Window
         {
             _overlaySettingsWindow.Close();
             _overlaySettingsWindow = null;
+        }
+        if (_webHost is not null)
+        {
+            _webHost.Close();
+            _webHost = null;
         }
         SyncUiToSettings();
         SaveSecretsFromUi();

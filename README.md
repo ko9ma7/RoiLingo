@@ -1,4 +1,7 @@
-# RoiLingo 2.1.0
+# RoiLingo 2.1.1
+
+> **2.1.1 중요 수정:** 무료 Web 번역 엔진은 이제 고급 설정 화면의 WebView2와 분리된 백그라운드 호스트에서 동작합니다. 따라서 프로그램 실행 후 설정 창을 한 번도 열지 않아도 `대상 → ROI → 시작`만으로 Papago/Google/DeepL 교차 번역이 시작됩니다.
+
 
 RoiLingo is a compact Windows WPF utility for **target-window ROI OCR → translation → game overlay**.
 It is designed to stay small during normal use while keeping OCR, Web/API/local translation, history and diagnostics under Settings.
@@ -172,7 +175,7 @@ The publisher:
 7. updates repository description/topics;
 8. waits for the Windows GitHub Actions build when visible;
 9. builds the self-contained Windows x64 ZIP;
-10. creates/updates tag and Release **v2.1.0** and uploads `RoiLingo-win-x64.zip`.
+10. creates/updates tag and Release **v2.1.1** and uploads `RoiLingo-win-x64.zip`.
 
 No tokens/API keys are embedded in the uploader.
 

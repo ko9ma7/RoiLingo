@@ -20,6 +20,7 @@ PATCH_NOTES_1.8.0.md
 PATCH_NOTES_1.9.0.md
 PATCH_NOTES_2.0.0.md
 PATCH_NOTES_2.1.0.md
+PATCH_NOTES_2.1.1.md
 README.md
 RobloxLiveTranslator.sln
 SOURCE_VALIDATION.txt
@@ -84,6 +85,7 @@ src/RobloxLiveTranslator/Translation/Web/WebCopyBridge.cs
 src/RobloxLiveTranslator/Translation/Web/WebInputInjector.cs
 src/RobloxLiveTranslator/Translation/Web/WebResultExtractor.cs
 src/RobloxLiveTranslator/Translation/Web/WebTranslationScripts.cs
+src/RobloxLiveTranslator/Translation/Web/WebTranslatorHostWindow.cs
 src/RobloxLiveTranslator/Translation/Web/WebTranslatorRuntime.cs
 src/RobloxLiveTranslator/Translation/Web/WebViewTranslationProvider.cs
 src/RobloxLiveTranslator/Translation/Web/WebVisualOcrFallback.cs

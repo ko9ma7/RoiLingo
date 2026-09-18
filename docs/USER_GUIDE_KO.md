@@ -73,7 +73,7 @@ ROI 편집 화면에서:
 github-bootstrap.cmd
 ```
 
-빌드 검증 → 저장소 생성/재사용 → main push → GitHub Actions 확인 → v2.1.0 Release 생성 → Windows ZIP 업로드 순으로 진행합니다.
+빌드 검증 → 저장소 생성/재사용 → main push → GitHub Actions 확인 → v2.1.1 Release 생성 → Windows ZIP 업로드 순으로 진행합니다.
 
 
 ## 순간 공지/이벤트 처리 (v2.1)
