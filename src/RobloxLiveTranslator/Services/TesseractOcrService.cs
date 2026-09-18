@@ -6,7 +6,7 @@ using Tesseract;
 
 namespace RobloxLiveTranslator.Services;
 
-public sealed class TesseractOcrService : IDisposable
+public sealed class TesseractOcrService : IOcrService
 {
     private readonly ModelManager _models;
     private readonly string _mode;

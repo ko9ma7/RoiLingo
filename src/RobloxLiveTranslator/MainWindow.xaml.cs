@@ -7,6 +7,7 @@ using RobloxLiveTranslator.Models;
 using RobloxLiveTranslator.Monitoring;
 using RobloxLiveTranslator.Native;
 using RobloxLiveTranslator.Overlay;
+using RobloxLiveTranslator.Quick;
 using RobloxLiveTranslator.Services;
 using RobloxLiveTranslator.Translation;
 using RobloxLiveTranslator.Translation.Api;
@@ -16,7 +17,7 @@ namespace RobloxLiveTranslator;
 
 public partial class MainWindow : Window
 {
-    private const double CompactWindowWidth = 860;
+    private const double CompactWindowWidth = 960;
     private const double CompactWindowHeight = 190;
     private const double AdvancedWindowMinWidth = 1120;
     private const double AdvancedWindowMinHeight = 760;
@@ -42,6 +43,10 @@ public partial class MainWindow : Window
     private WebTranslatorHostWindow? _webHost;
     private readonly SemaphoreSlim _webEngineInitGate = new(1, 1);
     private bool _logPersistenceWarningShown;
+    private GlobalHotkeyManager? _hotkeys;
+    private QuickResultWindow? _quickResultWindow;
+    private TesseractOcrService? _quickOcr;
+    private readonly SemaphoreSlim _quickOperationGate = new(1, 1);
 
     public MainWindow()
     {
@@ -61,6 +66,7 @@ public partial class MainWindow : Window
         await LoadHistoryAsync();
         RefreshApiUsageText();
         StatusText.Text = UiText.Get(_settings.UiLanguage, "ready");
+        RegisterQuickHotkeys();
 
         // The translation engine has its own off-screen WebView2 host. It does not depend on the
         // advanced-settings panel being opened. Warm it in the background so the first event can
@@ -136,6 +142,13 @@ public partial class MainWindow : Window
         var locale = UiText.NormalizeLocale(_settings.UiLanguage);
         PickWindowButton.Content = UiText.Get(locale, "target");
         EditRoiButton.Content = UiText.Get(locale, "roi");
+        QuickTranslateButton.Content = UiText.Get(locale, "quick");
+        if (QuickTranslateButton.ContextMenu?.Items.Count >= 3)
+        {
+            if (QuickTranslateButton.ContextMenu.Items[0] is MenuItem region) region.Header = UiText.Get(locale, "quick.region");
+            if (QuickTranslateButton.ContextMenu.Items[1] is MenuItem window) window.Header = UiText.Get(locale, "quick.window");
+            if (QuickTranslateButton.ContextMenu.Items[2] is MenuItem clipboard) clipboard.Header = UiText.Get(locale, "quick.clipboard");
+        }
         StartButton.Content = UiText.Get(locale, "start");
         StopButton.Content = UiText.Get(locale, "stop");
         QuickOverlayEditButton.Content = UiText.Get(locale, "overlay");
@@ -446,6 +459,226 @@ public partial class MainWindow : Window
         }
     }
 
+    private void RegisterQuickHotkeys()
+    {
+        try
+        {
+            _hotkeys?.Dispose();
+            _hotkeys = new GlobalHotkeyManager(this);
+            var region = _hotkeys.Register(2201, NativeMethods.MOD_CONTROL | NativeMethods.MOD_ALT | NativeMethods.MOD_NOREPEAT, (uint)'T',
+                () => _ = QuickRegionTranslateAsync());
+            var window = _hotkeys.Register(2202, NativeMethods.MOD_CONTROL | NativeMethods.MOD_ALT | NativeMethods.MOD_NOREPEAT, (uint)'W',
+                () => _ = QuickForegroundWindowTranslateAsync(useSelectedTargetWhenFocused: false));
+            var clipboard = _hotkeys.Register(2203, NativeMethods.MOD_CONTROL | NativeMethods.MOD_ALT | NativeMethods.MOD_NOREPEAT, (uint)'V',
+                () => _ = QuickClipboardTranslateAsync());
+            AddLog($"HOTKEY  영역 Ctrl+Alt+T={(region ? "OK" : "충돌")} / 창 Ctrl+Alt+W={(window ? "OK" : "충돌")} / 클립보드 Ctrl+Alt+V={(clipboard ? "OK" : "충돌")}");
+        }
+        catch (Exception ex)
+        {
+            AddLog("HOTKEY  전역 단축키 등록 실패: " + ex.Message);
+        }
+    }
+
+    private async void QuickTranslateButton_Click(object sender, RoutedEventArgs e) => await QuickRegionTranslateAsync();
+    private async void QuickRegionMenuItem_Click(object sender, RoutedEventArgs e) => await QuickRegionTranslateAsync();
+    private async void QuickWindowMenuItem_Click(object sender, RoutedEventArgs e) => await QuickForegroundWindowTranslateAsync(useSelectedTargetWhenFocused: true);
+    private async void QuickClipboardMenuItem_Click(object sender, RoutedEventArgs e) => await QuickClipboardTranslateAsync();
+
+    private async Task QuickRegionTranslateAsync()
+    {
+        if (!await _quickOperationGate.WaitAsync(0))
+        {
+            StatusText.Text = "빠른 번역이 이미 처리 중입니다.";
+            return;
+        }
+
+        var mainVisible = IsVisible;
+        var overlayVisible = _overlay?.IsVisible == true;
+        var liveVisible = _liveWindow?.IsVisible == true;
+        try
+        {
+            SyncUiToSettings();
+            if (mainVisible) Hide();
+            if (overlayVisible) _overlay?.Hide();
+            if (liveVisible) _liveWindow?.Hide();
+            await Task.Delay(90);
+
+            var snapshot = ScreenCaptureService.CaptureVirtualScreen();
+            if (snapshot is null) throw new InvalidOperationException("현재 화면을 캡처하지 못했습니다.");
+
+            var selector = new QuickCaptureWindow(snapshot);
+            var selected = selector.ShowDialog() == true ? selector.SelectedBitmap : null;
+            var anchor = selector.SelectedScreenRect;
+            RestoreQuickHiddenWindows(mainVisible, overlayVisible, liveVisible);
+            if (selected is null) return;
+
+            using (selected)
+                await TranslateQuickBitmapAsync(selected, "빠른 영역", anchor);
+        }
+        catch (Exception ex)
+        {
+            RestoreQuickHiddenWindows(mainVisible, overlayVisible, liveVisible);
+            AddLog("QUICK   영역 번역 실패: " + ex.Message);
+            StatusText.Text = "빠른 영역 번역 실패";
+            MessageBox.Show(ex.Message, "빠른 영역 번역", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _quickOperationGate.Release();
+        }
+    }
+
+    private async Task QuickForegroundWindowTranslateAsync(bool useSelectedTargetWhenFocused)
+    {
+        if (!await _quickOperationGate.WaitAsync(0)) return;
+        try
+        {
+            SyncUiToSettings();
+            var hwnd = NativeMethods.GetForegroundWindow();
+            if (IsOwnProcessWindow(hwnd))
+            {
+                if (useSelectedTargetWhenFocused && _targetHwnd != IntPtr.Zero && NativeMethods.IsWindow(_targetHwnd))
+                    hwnd = _targetHwnd;
+                else
+                    throw new InvalidOperationException("활성 창이 RoiLingo입니다. 번역할 창에서 Ctrl+Alt+W를 누르거나 먼저 대상 창을 선택하세요.");
+            }
+
+            var capture = new WindowCaptureService("Auto");
+            using var bitmap = capture.CaptureClient(hwnd) ?? throw new InvalidOperationException("활성 창을 캡처하지 못했습니다.");
+            await TranslateQuickBitmapAsync(bitmap, "빠른 창");
+        }
+        catch (Exception ex)
+        {
+            AddLog("QUICK   창 번역 실패: " + ex.Message);
+            StatusText.Text = "빠른 창 번역 실패";
+        }
+        finally
+        {
+            _quickOperationGate.Release();
+        }
+    }
+
+    private async Task QuickClipboardTranslateAsync()
+    {
+        if (!await _quickOperationGate.WaitAsync(0)) return;
+        try
+        {
+            SyncUiToSettings();
+            string text;
+            try { text = Clipboard.ContainsText() ? Clipboard.GetText().Trim() : string.Empty; }
+            catch { text = string.Empty; }
+            if (string.IsNullOrWhiteSpace(text))
+                throw new InvalidOperationException("클립보드에 번역할 텍스트가 없습니다.");
+            if (text.Length > 4000) text = text[..4000];
+            await TranslateQuickTextAsync(text, "클립보드", 1.0f, "OCR 없음");
+        }
+        catch (Exception ex)
+        {
+            AddLog("QUICK   클립보드 번역 실패: " + ex.Message);
+            StatusText.Text = "클립보드 번역 실패";
+        }
+        finally
+        {
+            _quickOperationGate.Release();
+        }
+    }
+
+    private async Task TranslateQuickBitmapAsync(System.Drawing.Bitmap bitmap, string label, Rect? anchor = null)
+    {
+        StatusText.Text = "빠른 OCR 중...";
+        var modelManager = new ModelManager();
+        _quickOcr ??= new TesseractOcrService(modelManager, _settings.OcrMode);
+        var sourceLanguage = TranslationLanguages.Normalize(_settings.SourceLanguage);
+        var languages = _settings.OcrLanguageFollowsSource && sourceLanguage != "auto"
+            ? TranslationLanguages.ToTesseract(sourceLanguage)
+            : _settings.OcrLanguages;
+        var sw = Stopwatch.StartNew();
+        var ocr = await _quickOcr.ReadAsync(bitmap, languages, CancellationToken.None, fastPath: false);
+        sw.Stop();
+        var text = TesseractOcrService.Normalize(ocr.Text);
+        if (ocr.Confidence < 0.12f || string.IsNullOrWhiteSpace(text))
+            throw new InvalidOperationException("선택 영역에서 읽을 수 있는 문자를 찾지 못했습니다.");
+        AddLog($"QUICK   {label} OCR={ocr.Confidence:P0} {sw.ElapsedMilliseconds}ms | {text}");
+        await TranslateQuickTextAsync(text, label, ocr.Confidence, $"OCR {sw.ElapsedMilliseconds}ms", anchor);
+    }
+
+    private async Task TranslateQuickTextAsync(string text, string label, float confidence, string metaPrefix, Rect? anchor = null)
+    {
+        var target = TranslationLanguages.Normalize(_settings.TargetLanguage, false);
+        var source = TranslationLanguages.Normalize(_settings.SourceLanguage);
+        var prepared = MixedLanguageTextProcessor.Prepare(text, target, _settings.SmartMixedText);
+        if (prepared.SkipTranslation)
+        {
+            ShowQuickResult(label, text, text, "원문", $"{metaPrefix} · 이미 {TranslationLanguages.DisplayName(target)}", anchor);
+            return;
+        }
+
+        var translator = await CreateOnDemandTranslatorAsync();
+        StatusText.Text = "빠른 번역 중...";
+        var sw = Stopwatch.StartNew();
+        var bundle = await translator.TranslateFirstSuccessAsync(prepared.TranslationInput, source, target, CancellationToken.None);
+        sw.Stop();
+        if (bundle.Results.Count == 0 || bundle.SelectedProvider is "실패" or "없음")
+            throw new InvalidOperationException("활성 번역기에서 결과를 얻지 못했습니다.");
+
+        ShowQuickResult(label, text, bundle.SelectedText, bundle.SelectedProvider,
+            $"{metaPrefix} · 번역 {sw.ElapsedMilliseconds}ms · 교차 {bundle.AgreementScore:P0}", anchor);
+        await AppendQuickHistoryAsync(label, text, bundle, confidence);
+        StatusText.Text = $"{label} 번역 완료";
+        AddLog($"QUICK   {label} {bundle.SelectedProvider} {sw.ElapsedMilliseconds}ms | {text} => {bundle.SelectedText}");
+    }
+
+    private async Task<MultiTranslator> CreateOnDemandTranslatorAsync()
+    {
+        if (StrategyUsesWeb() && HasEnabledWebProvider())
+            await EnsureWebEngineReadyAsync(navigateHome: false);
+        var providers = CreateTranslationProviders().Where(x => x.IsConfigured).ToArray();
+        if (providers.Length == 0)
+            throw new InvalidOperationException("사용 가능한 번역 Provider가 없습니다.");
+        _translationCache ??= new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v10.json");
+        var translator = new MultiTranslator(providers, _settings.PreferredProvider, _settings.TranslationStrategy,
+            _settings.ProviderWindowMs, _translationCache);
+        translator.Diagnostic += message => Dispatcher.Invoke(() => AddLog("TRANS   " + message));
+        return translator;
+    }
+
+    private void ShowQuickResult(string label, string source, string translation, string provider, string meta, Rect? anchor = null)
+    {
+        _quickResultWindow?.Close();
+        _quickResultWindow = new QuickResultWindow($"RoiLingo · {label}", source, translation, provider, meta, anchor);
+        _quickResultWindow.Closed += (_, _) => _quickResultWindow = null;
+        _quickResultWindow.Show();
+        _quickResultWindow.Activate();
+    }
+
+    private async Task AppendQuickHistoryAsync(string label, string source, TranslationBundle bundle, float confidence)
+    {
+        var record = new TranslationHistoryRecord(
+            Guid.NewGuid(), _sessionId, DateTimeOffset.Now, Guid.Empty, label, source, bundle.SelectedText,
+            bundle.SelectedProvider, confidence, bundle.AgreementScore, bundle.Results);
+        _history.Insert(0, record);
+        while (_history.Count > _settings.HistoryUiLimit) _history.RemoveAt(_history.Count - 1);
+        if (_settings.AutoSaveHistory)
+        {
+            try { await _historyStore.AppendTranslationAsync(record); }
+            catch (Exception ex) { AddLog("HISTORY 빠른 번역 저장 실패: " + ex.Message); }
+        }
+    }
+
+    private static bool IsOwnProcessWindow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return false;
+        NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+        return pid == (uint)Environment.ProcessId;
+    }
+
+    private void RestoreQuickHiddenWindows(bool mainVisible, bool overlayVisible, bool liveVisible)
+    {
+        if (mainVisible && !IsVisible) Show();
+        if (overlayVisible && _overlay is { IsLoaded: true } && !_overlay.IsVisible) _overlay.Show();
+        if (liveVisible && _liveWindow is { IsLoaded: true } && !_liveWindow.IsVisible) _liveWindow.Show();
+    }
+
     private async void StartButton_Click(object sender, RoutedEventArgs e)
     {
         if (!ValidateTarget()) return;
@@ -480,7 +713,7 @@ public partial class MainWindow : Window
 
             var models = new ModelManager();
             _ocr = new TesseractOcrService(models, _settings.OcrMode);
-            _translationCache = new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v9.json");
+            _translationCache = new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v10.json");
             var translator = new MultiTranslator(providers, _settings.PreferredProvider, _settings.TranslationStrategy, _settings.ProviderWindowMs, _translationCache);
             translator.Diagnostic += message => Dispatcher.Invoke(() => AddLog("TRANS   " + message));
 
@@ -1203,6 +1436,12 @@ public partial class MainWindow : Window
                 _webHost.Close();
                 _webHost = null;
             }
+            _hotkeys?.Dispose();
+            _hotkeys = null;
+            _quickOcr?.Dispose();
+            _quickOcr = null;
+            _quickResultWindow?.Close();
+            _quickResultWindow = null;
             SyncUiToSettings();
             SaveSecretsFromUi();
             SaveAll();
@@ -1225,6 +1464,12 @@ public partial class MainWindow : Window
             _webHost.Close();
             _webHost = null;
         }
+        _hotkeys?.Dispose();
+        _hotkeys = null;
+        _quickOcr?.Dispose();
+        _quickOcr = null;
+        _quickResultWindow?.Close();
+        _quickResultWindow = null;
         SyncUiToSettings();
         SaveSecretsFromUi();
         SaveAll();

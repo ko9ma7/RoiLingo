@@ -13,10 +13,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <LangVersion>12.0</LangVersion>
-    <Version>2.1.1</Version>
+    <Version>2.2.0</Version>
     <Product>RoiLingo</Product>
     <Authors>RoiLingo Contributors</Authors>
-    <Description>ROI-based live OCR and hybrid WebView/API/local translation overlay for Windows games.</Description>
+    <Description>ROI live monitor and quick screen translator with OCR, Web/API/local translation, overlays, hotkeys, and history for Windows.</Description>
   </PropertyGroup>
 
   <ItemGroup>

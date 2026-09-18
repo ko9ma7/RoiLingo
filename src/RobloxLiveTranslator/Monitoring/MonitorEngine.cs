@@ -14,7 +14,7 @@ public sealed class MonitorEngine : IAsyncDisposable
     private readonly IntPtr _hwnd;
     private readonly AppSettings _settings;
     private readonly WindowCaptureService _capture;
-    private readonly TesseractOcrService _ocr;
+    private readonly IOcrService _ocr;
     private readonly MultiTranslator _translator;
     private readonly Dictionary<Guid, RoiState> _states = [];
     private CancellationTokenSource? _cts;
@@ -59,7 +59,7 @@ public sealed class MonitorEngine : IAsyncDisposable
     public event Action<string>? Status;
 
     public MonitorEngine(IntPtr hwnd, AppSettings settings, WindowCaptureService capture,
-        TesseractOcrService ocr, MultiTranslator translator)
+        IOcrService ocr, MultiTranslator translator)
     {
         _hwnd = hwnd;
         _settings = settings;

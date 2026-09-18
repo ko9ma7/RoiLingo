@@ -16,6 +16,14 @@ internal static class NativeMethods
     public const uint WDA_NONE = 0x00000000;
     public const uint WDA_MONITOR = 0x00000001;
     public const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+    public const int WM_HOTKEY = 0x0312;
+    public const uint MOD_ALT = 0x0001;
+    public const uint MOD_CONTROL = 0x0002;
+    public const uint MOD_NOREPEAT = 0x4000;
+    public const int SM_XVIRTUALSCREEN = 76;
+    public const int SM_YVIRTUALSCREEN = 77;
+    public const int SM_CXVIRTUALSCREEN = 78;
+    public const int SM_CYVIRTUALSCREEN = 79;
     public static readonly IntPtr HWND_TOPMOST = new(-1);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -35,6 +43,19 @@ internal static class NativeMethods
         public int Width => Right - Left;
         public int Height => Bottom - Top;
     }
+
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool DeleteObject(IntPtr hObject);
 
     [DllImport("user32.dll")]
     public static extern bool GetCursorPos(out POINT lpPoint);
@@ -59,6 +80,9 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     [DllImport("user32.dll")]
     public static extern bool IsIconic(IntPtr hWnd);

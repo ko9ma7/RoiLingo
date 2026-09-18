@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="RoiLingo" Width="860" Height="190" MinWidth="760" MinHeight="175"
+        Title="RoiLingo" Width="960" Height="190" MinWidth="900" MinHeight="175"
         Loaded="Window_Loaded" Closing="Window_Closing">
     <Grid Margin="10">
         <Grid.RowDefinitions>
@@ -16,6 +16,15 @@
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="PickWindowButton" Content="대상" Click="PickWindowButton_Click" Padding="12,6" Margin="2" ToolTip="번역할 게임/프로그램 창 선택"/>
                     <Button x:Name="EditRoiButton" Content="ROI" Click="EditRoiButton_Click" Padding="12,6" Margin="2" ToolTip="화면에서 번역할 영역 지정"/>
+                    <Button x:Name="QuickTranslateButton" Content="빠른번역" Click="QuickTranslateButton_Click" Padding="11,6" Margin="2" ToolTip="현재 화면에서 한 번만 영역을 골라 번역 (Ctrl+Alt+T). 우클릭: 다른 빠른 번역">
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="영역 선택 번역 (Ctrl+Alt+T)" Click="QuickRegionMenuItem_Click"/>
+                                <MenuItem Header="활성 창 전체 번역 (Ctrl+Alt+W)" Click="QuickWindowMenuItem_Click"/>
+                                <MenuItem Header="클립보드 텍스트 번역 (Ctrl+Alt+V)" Click="QuickClipboardMenuItem_Click"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
                     <Button x:Name="StartButton" Content="시작" Click="StartButton_Click" FontWeight="Bold" Padding="16,6" Margin="6,2,2,2"/>
                     <Button x:Name="StopButton" Content="중지" Click="StopButton_Click" IsEnabled="False" Padding="12,6" Margin="2"/>
                     <Button x:Name="QuickOverlayEditButton" Content="오버레이" Click="ToggleOverlayEditModeButton_Click" IsEnabled="False" Padding="10,6" Margin="8,2,2,2" ToolTip="게임 위 번역 박스 위치/크기/투명도 조절"/>

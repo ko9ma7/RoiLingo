@@ -1,0 +1,23 @@
+<Window x:Class="RobloxLiveTranslator.Quick.QuickCaptureWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
+        AllowsTransparency="False" Background="Black"
+        Loaded="Window_Loaded" KeyDown="Window_KeyDown"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown"
+        MouseMove="Window_MouseMove" MouseLeftButtonUp="Window_MouseLeftButtonUp"
+        MouseRightButtonDown="Window_MouseRightButtonDown">
+    <Grid x:Name="Root">
+        <Image x:Name="ScreenshotImage" Stretch="Fill"/>
+        <Border Background="#25000000" IsHitTestVisible="False"/>
+        <Canvas x:Name="SelectionCanvas" Background="Transparent">
+            <Border x:Name="HintPanel" Canvas.Left="18" Canvas.Top="18" Background="#D9202020" CornerRadius="6" Padding="12,8" IsHitTestVisible="False">
+                <TextBlock Foreground="White" FontSize="14" Text="드래그: 번역할 영역 선택   Esc/우클릭: 취소"/>
+            </Border>
+            <Rectangle x:Name="SelectionRect" Visibility="Collapsed" Stroke="#FF54A7FF" StrokeThickness="2" Fill="#20FFFFFF" IsHitTestVisible="False"/>
+            <Border x:Name="SizePanel" Visibility="Collapsed" Background="#D9202020" CornerRadius="4" Padding="6,3" IsHitTestVisible="False">
+                <TextBlock x:Name="SizeText" Foreground="White" FontSize="12"/>
+            </Border>
+        </Canvas>
+    </Grid>
+</Window>

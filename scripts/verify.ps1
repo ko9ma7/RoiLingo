@@ -34,11 +34,11 @@ Get-ChildItem -Path .\src\RobloxLiveTranslator -Filter *.xaml -Recurse | ForEach
 }
 Write-Host "[OK] XAML parse"
 
-Write-Host "[CHECK] RoiLingo 2.1.1 runtime contracts"
+Write-Host "[CHECK] RoiLingo 2.2.0 runtime contracts"
 $contractFiles = @{
     "src\RobloxLiveTranslator\Models\AppSettings.cs" = @('SourceLanguage { get; set; } = "auto"', 'OcrLanguages { get; set; } = "eng+kor"', 'SmartMixedText { get; set; } = true', 'TargetLanguage { get; set; } = "ko"', 'TranslationStrategy { get; set; } = "WebOnly"')
-    "src\RobloxLiveTranslator\MainWindow.xaml.cs" = @('translation-cache-hybrid-v9.json', 'WindowCaptureService(_settings.CaptureMode)', 'WarmUpAfterStartAsync', 'ApplyUiLanguage', 'CAPTURE ', 'EnsureWebEngineReadyAsync', 'WebTranslatorHostWindow', '시작 버튼에서 웹 번역 엔진 준비 확인')
-    "src\RobloxLiveTranslator\Translation\MultiTranslator.cs" = @('_strategy.Equals("WebOnly"', 'return web;')
+    "src\RobloxLiveTranslator\MainWindow.xaml.cs" = @('QuickRegionTranslateAsync', 'QuickClipboardTranslateAsync', 'TranslateFirstSuccessAsync', 'translation-cache-hybrid-v10.json', 'WindowCaptureService(_settings.CaptureMode)', 'WarmUpAfterStartAsync', 'ApplyUiLanguage', 'CAPTURE ', 'EnsureWebEngineReadyAsync', 'WebTranslatorHostWindow', '시작 버튼에서 웹 번역 엔진 준비 확인')
+    "src\RobloxLiveTranslator\Translation\MultiTranslator.cs" = @('TranslateFirstSuccessAsync', '_strategy.Equals("WebOnly"', 'return web;')
     "src\RobloxLiveTranslator\Translation\TranslationTextValidator.cs" = @('MatchesTargetScript', '중국어(간체)', '인도네시아어')
     "src\RobloxLiveTranslator\Translation\MixedLanguageTextProcessor.cs" = @('already-target-language', 'mixed-filtered', 'ExtractForeignRuns')
     "src\RobloxLiveTranslator\OcrLanguagePickerWindow.xaml.cs" = @('SelectedLanguages', 'eng', 'kor')
@@ -48,6 +48,10 @@ $contractFiles = @{
     "src\RobloxLiveTranslator\Overlay\OverlayWindow.xaml.cs" = @('OverlayWidth', 'OverlayHeight', '가로 크기만 조절', '세로 크기만 조절', 'PurgeExpired')
     "src\RobloxLiveTranslator\Services\UiText.cs" = @('ko-KR', 'en-US', 'ja-JP', 'zh-CN')
     "src\RobloxLiveTranslator\Translation\Web\WebTranslatorHostWindow.cs" = @('ShowInTaskbar = false', 'ShowActivated = false', 'VirtualScreenLeft', 'Papago', 'Google', 'DeepL')
+    "src\RobloxLiveTranslator\Services\GlobalHotkeyManager.cs" = @('RegisterHotKey', 'WM_HOTKEY')
+    "src\RobloxLiveTranslator\Services\IOcrService.cs" = @('interface IOcrService', 'ReadAsync')
+    "src\RobloxLiveTranslator\Quick\QuickCaptureWindow.xaml.cs" = @('SelectedBitmap', 'CaptureMouse', 'VirtualScreen')
+    "src\RobloxLiveTranslator\Quick\QuickResultWindow.xaml.cs" = @('Clipboard.SetText', 'TranslationBox')
 }
 foreach ($relativePath in $contractFiles.Keys) {
     $fullPath = Join-Path $root $relativePath

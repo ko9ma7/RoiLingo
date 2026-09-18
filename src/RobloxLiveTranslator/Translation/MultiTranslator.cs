@@ -107,6 +107,53 @@ public sealed class MultiTranslator
         return new TranslationBundle(selected.Provider, selected.Text, completed, agreement);
     }
 
+    /// <summary>
+    /// Low-latency path for one-shot captures. All eligible providers are started, but the first
+    /// validated result wins and the rest are cancelled. Fixed ROI monitoring still uses TranslateAsync
+    /// so its normal cross-check behaviour is preserved.
+    /// </summary>
+    public async Task<TranslationBundle> TranslateFirstSuccessAsync(
+        string source,
+        string sourceLanguage,
+        string targetLanguage,
+        CancellationToken cancellationToken)
+    {
+        sourceLanguage = TranslationLanguages.Normalize(sourceLanguage);
+        targetLanguage = TranslationLanguages.Normalize(targetLanguage, false);
+        if (sourceLanguage != "auto" && sourceLanguage.Equals(targetLanguage, StringComparison.OrdinalIgnoreCase))
+            return new TranslationBundle("원문", source, [new ProviderTranslation("원문", source, TimeSpan.Zero)], 1);
+
+        if (_cache.TryGet(source, sourceLanguage, targetLanguage, out var cachedProvider, out var cachedText))
+            return new TranslationBundle(cachedProvider + " (cache)", cachedText,
+                [new ProviderTranslation(cachedProvider + " (cache)", cachedText, TimeSpan.Zero)], 1);
+
+        var scheduled = SelectProvidersForRequest(source.Length);
+        if (scheduled.Count == 0)
+            return new TranslationBundle("없음", "[활성화된 번역 제공자가 없습니다]", [], 0);
+
+        Diagnostic?.Invoke("빠른 번역(첫 성공): " + string.Join(", ", scheduled.Select(x => x.Name)));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        linked.CancelAfter(TimeSpan.FromMilliseconds(Math.Max(7000, _windowMs + 3500)));
+        var pending = scheduled
+            .Select(p => TranslateSafeAsync(p, source, sourceLanguage, targetLanguage, linked.Token))
+            .ToList();
+
+        while (pending.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var finished = await Task.WhenAny(pending);
+            pending.Remove(finished);
+            var result = await finished;
+            if (result is null) continue;
+
+            linked.Cancel();
+            await _cache.PutAsync(source, sourceLanguage, targetLanguage, result.Provider, result.Text);
+            return new TranslationBundle(result.Provider, result.Text, [result], 1);
+        }
+
+        return new TranslationBundle("실패", "[활성화된 번역 제공자에서 결과를 얻지 못했습니다]", [], 0);
+    }
+
     private IReadOnlyList<ITranslationProvider> SelectProvidersForRequest(int sourceCharacters)
     {
         var all = _providers.Where(p => p.IsConfigured).Where(p =>

@@ -1,10 +1,34 @@
-# RoiLingo 2.1.1
+# RoiLingo 2.2.0
 
-> **2.1.1 중요 수정:** 무료 Web 번역 엔진은 이제 고급 설정 화면의 WebView2와 분리된 백그라운드 호스트에서 동작합니다. 따라서 프로그램 실행 후 설정 창을 한 번도 열지 않아도 `대상 → ROI → 시작`만으로 Papago/Google/DeepL 교차 번역이 시작됩니다.
+> **2.2.0:** 고정 ROI 실시간 감시 외에 전역 단축키 기반 **빠른 영역 번역 / 활성 창 번역 / 클립보드 번역**을 추가했습니다. 기본 화면은 여전히 작게 유지하며, `대상 → ROI → 시작`만으로 기존 실시간 감시를 사용할 수 있습니다.
 
 
 RoiLingo is a compact Windows WPF utility for **target-window ROI OCR → translation → game overlay**.
 It is designed to stay small during normal use while keeping OCR, Web/API/local translation, history and diagnostics under Settings.
+
+## Two workflows
+
+### 1) Fixed ROI live monitor
+
+```text
+대상 → ROI → 시작
+```
+
+게임/영상의 고정 영역을 계속 감시하고, 짧게 나타났다 사라지는 메시지도 스냅샷으로 보존해 OCR/번역/로그를 완료합니다.
+
+### 2) Quick translation anywhere
+
+RoiLingo가 실행 중이면 대상 창이나 ROI가 없어도 사용할 수 있습니다.
+
+```text
+Ctrl+Alt+T  화면을 멈춘 뒤 드래그한 영역 OCR + 번역
+Ctrl+Alt+W  현재 활성 창 전체 OCR + 번역
+Ctrl+Alt+V  클립보드 텍스트를 OCR 없이 즉시 번역
+```
+
+작은 기본 창의 **빠른번역** 버튼은 영역 선택 모드이고, 우클릭하면 세 가지 빠른 동작을 선택할 수 있습니다. 결과 창은 자유롭게 이동/크기 조절할 수 있고 번역 복사도 가능합니다. 빠른 번역은 지연을 줄이기 위해 설정된 Provider들을 동시에 시작한 뒤 **첫 번째로 검증에 통과한 결과**를 표시합니다. 고정 ROI 모드는 기존 교차검증 정책을 그대로 유지합니다.
+
+이 때문에 게임뿐 아니라 PDF, 이미지, Canvas, 웹소설, 잠긴 웹페이지, 영상 자막, 원격 데스크톱 화면, 복사한 텍스트에도 사용할 수 있습니다.
 
 ## Quick start
 
@@ -175,7 +199,7 @@ The publisher:
 7. updates repository description/topics;
 8. waits for the Windows GitHub Actions build when visible;
 9. builds the self-contained Windows x64 ZIP;
-10. creates/updates tag and Release **v2.1.1** and uploads `RoiLingo-win-x64.zip`.
+10. creates/updates tag and Release **v2.2.0** and uploads `RoiLingo-win-x64.zip`.
 
 No tokens/API keys are embedded in the uploader.
 
@@ -192,7 +216,7 @@ Typical files:
 ```text
 settings.json
 api-secrets.dpapi
-translation-cache-hybrid-v9.json
+translation-cache-hybrid-v10.json
 history\translations-YYYY-MM-DD.jsonl
 logs\runtime-YYYY-MM-DD.log
 exports\translations-*.csv
@@ -228,3 +252,16 @@ Current ROI overlay + history/log
 ## License
 
 See `LICENSE`.
+
+
+## Open-source reference projects
+
+RoiLingo 2.2의 기능 확장은 아래 공개 프로젝트들의 **사용 흐름과 설계 아이디어**를 참고했습니다. 해당 프로젝트의 소스 코드를 복사해 포함하지 않았습니다.
+
+- Kushisusumita/screen-translator — 전역 단축키, freeze-frame 영역 선택, first-success 번역 흐름, tray 중심 UX
+- OneMoreGres/ScreenTranslator — 캡처/OCR/번역 모듈 분리, recognizer/translator 리소스 관리, 단축키 영역 번역
+- bigone2000/screen-select-translate — 브라우저의 이미지/영상/Canvas 영역 OCR, 드래그 가능한 결과 창, UI i18n
+- zixload/ocr-translate-overlay — 로컬 OCR, 떠 있는 패널, 위치/크기 기억, 모델 자동 준비
+- meangrinch/MangaTranslator — OCR/번역 backend 교체 가능 구조, 다국어/배치 처리 아이디어
+
+자세한 비교와 채택/보류 항목은 `docs/REFERENCE_PROJECTS.md`를 참고하세요.

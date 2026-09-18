@@ -6,7 +6,7 @@ public static class UiText
     {
         ["ko-KR"] = new()
         {
-            ["target"]="대상", ["roi"]="ROI", ["start"]="시작", ["stop"]="중지", ["overlay"]="오버레이",
+            ["target"]="대상", ["roi"]="ROI", ["quick"]="빠른번역", ["quick.region"]="영역 선택 번역 (Ctrl+Alt+T)", ["quick.window"]="활성 창 전체 번역 (Ctrl+Alt+W)", ["quick.clipboard"]="클립보드 텍스트 번역 (Ctrl+Alt+V)", ["start"]="시작", ["stop"]="중지", ["overlay"]="오버레이",
             ["live"]="번역창", ["settings"]="설정", ["source"]="원문", ["translate"]="→ 번역", ["mode"]="방식",
             ["advanced"]="고급 설정", ["save"]="저장", ["close"]="닫기", ["ready"]="대상 → ROI → 시작",
             ["tab.general"]="설정 / ROI", ["tab.web"]="번역 웹 / 교차 검증", ["tab.api"]="번역 API / 로컬", ["tab.history"]="번역 기록",
@@ -17,7 +17,7 @@ public static class UiText
         },
         ["en-US"] = new()
         {
-            ["target"]="Target", ["roi"]="ROI", ["start"]="Start", ["stop"]="Stop", ["overlay"]="Overlay",
+            ["target"]="Target", ["roi"]="ROI", ["quick"]="Quick", ["quick.region"]="Translate selected area (Ctrl+Alt+T)", ["quick.window"]="Translate active window (Ctrl+Alt+W)", ["quick.clipboard"]="Translate clipboard (Ctrl+Alt+V)", ["start"]="Start", ["stop"]="Stop", ["overlay"]="Overlay",
             ["live"]="Live", ["settings"]="Settings", ["source"]="Source", ["translate"]="→ Target", ["mode"]="Mode",
             ["advanced"]="Advanced settings", ["save"]="Save", ["close"]="Close", ["ready"]="Target → ROI → Start",
             ["tab.general"]="General / ROI", ["tab.web"]="Web / Cross-check", ["tab.api"]="API / Local", ["tab.history"]="History",
@@ -28,7 +28,7 @@ public static class UiText
         },
         ["ja-JP"] = new()
         {
-            ["target"]="対象", ["roi"]="ROI", ["start"]="開始", ["stop"]="停止", ["overlay"]="オーバーレイ",
+            ["target"]="対象", ["roi"]="ROI", ["quick"]="クイック", ["quick.region"]="範囲を翻訳 (Ctrl+Alt+T)", ["quick.window"]="アクティブウィンドウ翻訳 (Ctrl+Alt+W)", ["quick.clipboard"]="クリップボード翻訳 (Ctrl+Alt+V)", ["start"]="開始", ["stop"]="停止", ["overlay"]="オーバーレイ",
             ["live"]="翻訳ウィンドウ", ["settings"]="設定", ["source"]="原文", ["translate"]="→ 翻訳", ["mode"]="方式",
             ["advanced"]="詳細設定", ["save"]="保存", ["close"]="閉じる", ["ready"]="対象 → ROI → 開始",
             ["tab.general"]="設定 / ROI", ["tab.web"]="Web / 相互確認", ["tab.api"]="API / ローカル", ["tab.history"]="翻訳履歴",
@@ -39,7 +39,7 @@ public static class UiText
         },
         ["zh-CN"] = new()
         {
-            ["target"]="目标", ["roi"]="ROI", ["start"]="开始", ["stop"]="停止", ["overlay"]="浮层",
+            ["target"]="目标", ["roi"]="ROI", ["quick"]="快速翻译", ["quick.region"]="选择区域翻译 (Ctrl+Alt+T)", ["quick.window"]="翻译活动窗口 (Ctrl+Alt+W)", ["quick.clipboard"]="翻译剪贴板 (Ctrl+Alt+V)", ["start"]="开始", ["stop"]="停止", ["overlay"]="浮层",
             ["live"]="翻译窗", ["settings"]="设置", ["source"]="源语言", ["translate"]="→ 翻译", ["mode"]="模式",
             ["advanced"]="高级设置", ["save"]="保存", ["close"]="关闭", ["ready"]="目标 → ROI → 开始",
             ["tab.general"]="设置 / ROI", ["tab.web"]="网页 / 交叉验证", ["tab.api"]="API / 本地", ["tab.history"]="翻译记录",

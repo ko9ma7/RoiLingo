@@ -1,3 +1,5 @@
+RoiLingo 2.2.0 full source manifest
+
 .editorconfig
 .gitattributes
 .github/REPOSITORY_METADATA.md
@@ -21,15 +23,20 @@ PATCH_NOTES_1.9.0.md
 PATCH_NOTES_2.0.0.md
 PATCH_NOTES_2.1.0.md
 PATCH_NOTES_2.1.1.md
+PATCH_NOTES_2.2.0.md
 README.md
 RobloxLiveTranslator.sln
 SOURCE_VALIDATION.txt
 VERSION.txt
 docs/BUILD-TROUBLESHOOTING.md
+docs/REFERENCE_PROJECTS.md
 docs/USER_GUIDE_KO.md
+docs/USE_CASES.md
 github-bootstrap.cmd
 scripts/build_release.bat
 scripts/build_release.ps1
+scripts/diagnose.cmd
+scripts/diagnose.ps1
 scripts/github-publish.ps1
 scripts/libretranslate-local.cmd
 scripts/verify.cmd
@@ -54,13 +61,20 @@ src/RobloxLiveTranslator/Overlay/OverlaySettingsWindow.xaml
 src/RobloxLiveTranslator/Overlay/OverlaySettingsWindow.xaml.cs
 src/RobloxLiveTranslator/Overlay/OverlayWindow.xaml
 src/RobloxLiveTranslator/Overlay/OverlayWindow.xaml.cs
+src/RobloxLiveTranslator/Quick/QuickCaptureWindow.xaml
+src/RobloxLiveTranslator/Quick/QuickCaptureWindow.xaml.cs
+src/RobloxLiveTranslator/Quick/QuickResultWindow.xaml
+src/RobloxLiveTranslator/Quick/QuickResultWindow.xaml.cs
 src/RobloxLiveTranslator/RobloxLiveTranslator.csproj
 src/RobloxLiveTranslator/RoiEditorWindow.xaml
 src/RobloxLiveTranslator/RoiEditorWindow.xaml.cs
+src/RobloxLiveTranslator/Services/GlobalHotkeyManager.cs
 src/RobloxLiveTranslator/Services/HistoryStore.cs
+src/RobloxLiveTranslator/Services/IOcrService.cs
 src/RobloxLiveTranslator/Services/ImagePreprocessor.cs
 src/RobloxLiveTranslator/Services/ModelManager.cs
 src/RobloxLiveTranslator/Services/RoiChangeDetector.cs
+src/RobloxLiveTranslator/Services/ScreenCaptureService.cs
 src/RobloxLiveTranslator/Services/SecretStore.cs
 src/RobloxLiveTranslator/Services/SettingsStore.cs
 src/RobloxLiveTranslator/Services/TargetWindowPicker.cs
