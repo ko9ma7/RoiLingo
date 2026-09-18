@@ -3,24 +3,30 @@ namespace RobloxLiveTranslator.Models;
 public sealed class AppSettings
 {
     public int SchemaVersion { get; set; }
-    public string OcrLanguages { get; set; } = "eng";
+    public string UiLanguage { get; set; } = "ko-KR";
+    public string CaptureMode { get; set; } = "BackgroundFirst";
+    public bool BackgroundWarmup { get; set; } = true;
+    public string SourceLanguage { get; set; } = "auto";
+    public bool OcrLanguageFollowsSource { get; set; } = false;
+    public string OcrLanguages { get; set; } = "eng+kor";
     public string OcrMode { get; set; } = "Balanced";
     public string TargetLanguage { get; set; } = "ko";
-    public int PollIntervalMs { get; set; } = 220;
-    public int SettleMs { get; set; } = 150;
+    public bool SmartMixedText { get; set; } = true;
+    public int PollIntervalMs { get; set; } = 150;
+    public int SettleMs { get; set; } = 100;
     public int ForceOcrSeconds { get; set; } = 8;
     public double ChangeThreshold { get; set; } = 0.035;
 
-    public string TranslationStrategy { get; set; } = "HybridBalanced";
+    public string TranslationStrategy { get; set; } = "WebOnly";
     public string PreferredProvider { get; set; } = "Auto";
-    public int ProviderWindowMs { get; set; } = 4500;
+    public int ProviderWindowMs { get; set; } = 2500;
     public int WebTranslationTimeoutMs { get; set; } = 8000;
     public int ApiTimeoutMs { get; set; } = 7000;
     public bool AllowClipboardFallback { get; set; } = true;
 
     public bool AutoSaveHistory { get; set; } = true;
     public int HistoryUiLimit { get; set; } = 1000;
-    public bool ShowLiveWindow { get; set; } = true;
+    public bool ShowLiveWindow { get; set; } = false;
     public double? LiveWindowLeft { get; set; }
     public double? LiveWindowTop { get; set; }
     public double LiveWindowWidth { get; set; } = 560;

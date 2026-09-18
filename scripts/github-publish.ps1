@@ -2,8 +2,8 @@
 $RepoName = "RoiLingo"
 $Visibility = "public"
 $Description = "Windows ROI live OCR translator with Tesseract, WebView translators, official APIs, and LibreTranslate/Argos support."
-$Topics = @("windows", "wpf", "csharp", "ocr", "tesseract", "translation", "webview2", "roblox", "libretranslate", "argos-translate")
-$Tag = "v1.6.1"
+$Topics = @("windows", "wpf", "csharp", "ocr", "tesseract", "translation", "webview2", "roblox", "libretranslate", "argos-translate", "i18n", "overlay")
+$Tag = "v2.0.0"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $root
 
@@ -112,7 +112,7 @@ if ($hasChanges) {
     if (-not $hasHead -and (Test-Path $packedRefs)) {
         $hasHead = Select-String -Path $packedRefs -Pattern " refs/heads/main$" -Quiet
     }
-    if ($hasHead) { git commit -m "fix: repair translation worker build and preserve latest-wins flow" | Out-Host }
+    if ($hasHead) { git commit -m "feat: background capture, editable ROI, fast startup and i18n" | Out-Host }
     else { git commit -m "feat: initialize RoiLingo" | Out-Host }
     if ($LASTEXITCODE -ne 0) { Fail "Git commit failed." "git status; git add -A; git commit -m 'feat: initialize RoiLingo'" }
 }
@@ -136,11 +136,16 @@ if ($remoteNames -notcontains "origin") {
     if ($origin -notmatch [regex]::Escape($FullRepo)) { git remote set-url origin "https://github.com/$FullRepo.git" }
 }
 
-if (Test-NativeSuccess { gh repo edit $FullRepo --description $Description }) {
-    foreach ($topic in $Topics) { gh repo edit $FullRepo --add-topic $topic *> $null }
+$aboutUpdated = Test-NativeSuccess { gh repo edit $FullRepo --description $Description }
+$topicFailures = @()
+foreach ($topic in $Topics) {
+    if (-not (Test-NativeSuccess { gh repo edit $FullRepo --add-topic $topic })) { $topicFailures += $topic }
+}
+if ($aboutUpdated -and $topicFailures.Count -eq 0) {
     Ok "Repository About/Topics updated"
 } else {
-    Warn "Repository About/Topics update failed. This does not block source publishing."
+    $detail = if ($topicFailures.Count -gt 0) { " Topics not applied: " + ($topicFailures -join ", ") } else { "" }
+    Warn ("Repository About/Topics update was partial. This does not block source publishing." + $detail)
 }
 
 Step "Synchronize existing remote"

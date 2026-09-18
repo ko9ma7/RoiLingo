@@ -34,6 +34,31 @@ Get-ChildItem -Path .\src\RobloxLiveTranslator -Filter *.xaml -Recurse | ForEach
 }
 Write-Host "[OK] XAML parse"
 
+Write-Host "[CHECK] RoiLingo 2.0 runtime contracts"
+$contractFiles = @{
+    "src\RobloxLiveTranslator\Models\AppSettings.cs" = @('SourceLanguage { get; set; } = "auto"', 'OcrLanguages { get; set; } = "eng+kor"', 'SmartMixedText { get; set; } = true', 'TargetLanguage { get; set; } = "ko"', 'TranslationStrategy { get; set; } = "WebOnly"')
+    "src\RobloxLiveTranslator\MainWindow.xaml.cs" = @('translation-cache-hybrid-v8.json', 'WindowCaptureService(_settings.CaptureMode)', 'WarmUpAfterStartAsync', 'ApplyUiLanguage')
+    "src\RobloxLiveTranslator\Translation\MultiTranslator.cs" = @('_strategy.Equals("WebOnly"', 'return web;')
+    "src\RobloxLiveTranslator\Translation\TranslationTextValidator.cs" = @('MatchesTargetScript', '중국어(간체)', '인도네시아어')
+    "src\RobloxLiveTranslator\Translation\MixedLanguageTextProcessor.cs" = @('already-target-language', 'mixed-filtered', 'ExtractForeignRuns')
+    "src\RobloxLiveTranslator\OcrLanguagePickerWindow.xaml.cs" = @('SelectedLanguages', 'eng', 'kor')
+    "src\RobloxLiveTranslator\Services\WindowCaptureService.cs" = @('PrintWindow-client', 'screen-foreground-fallback', 'BackgroundOnly')
+    "src\RobloxLiveTranslator\RoiEditorWindow.xaml.cs" = @('Resize_DragDelta', 'Roi_MouseMove', 'DeleteSelected')
+    "src\RobloxLiveTranslator\Overlay\OverlayWindow.xaml.cs" = @('OverlayHeightScale', '가로/세로 독립')
+    "src\RobloxLiveTranslator\Services\UiText.cs" = @('ko-KR', 'en-US', 'ja-JP', 'zh-CN')
+}
+foreach ($relativePath in $contractFiles.Keys) {
+    $fullPath = Join-Path $root $relativePath
+    if (-not (Test-Path $fullPath)) { throw "Required source file missing: $relativePath" }
+    $source = [System.IO.File]::ReadAllText($fullPath, $utf8)
+    foreach ($requiredText in $contractFiles[$relativePath]) {
+        if (-not $source.Contains($requiredText)) {
+            throw "RoiLingo contract check failed: '$requiredText' not found in $relativePath"
+        }
+    }
+}
+Write-Host "[OK] runtime contracts"
+
 Write-Host "[CHECK] NuGet restore"
 dotnet restore .\RobloxLiveTranslator.sln
 if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed ($LASTEXITCODE)" }

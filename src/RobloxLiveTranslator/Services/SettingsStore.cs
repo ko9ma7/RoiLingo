@@ -1,4 +1,5 @@
 using RobloxLiveTranslator.Models;
+using RobloxLiveTranslator.Translation;
 
 namespace RobloxLiveTranslator.Services;
 
@@ -40,7 +41,7 @@ public static class SettingsStore
 
     public static void SaveSettings(AppSettings settings)
     {
-        settings.SchemaVersion = 5;
+        settings.SchemaVersion = 9;
         Directory.CreateDirectory(AppDirectory);
         var temp = SettingsPath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(settings, JsonOptions), new UTF8Encoding(false));
@@ -49,6 +50,7 @@ public static class SettingsStore
 
     private static AppSettings Migrate(AppSettings settings)
     {
+        settings.PreferredProvider = string.IsNullOrWhiteSpace(settings.PreferredProvider) ? "Auto" : settings.PreferredProvider;
         if (settings.SchemaVersion < 2)
         {
             settings.WebProviders ??= new WebProviderFlags();
@@ -67,6 +69,12 @@ public static class SettingsStore
                 };
         }
 
+        settings.SourceLanguage = string.IsNullOrWhiteSpace(settings.SourceLanguage) ? "auto" : TranslationLanguages.Normalize(settings.SourceLanguage);
+        settings.TargetLanguage = string.IsNullOrWhiteSpace(settings.TargetLanguage) ? "ko" : TranslationLanguages.Normalize(settings.TargetLanguage, false);
+        settings.OcrLanguages = string.IsNullOrWhiteSpace(settings.OcrLanguages) ? "eng+kor" : settings.OcrLanguages.Trim();
+        settings.TranslationStrategy = string.IsNullOrWhiteSpace(settings.TranslationStrategy) ? "WebOnly" : settings.TranslationStrategy;
+        settings.Rois ??= [];
+
         settings.WebProviders ??= new WebProviderFlags();
         settings.ApiProviders ??= new ApiProviderSettings();
         settings.ApiProviders.Papago ??= new ProviderBudgetSettings();
@@ -81,6 +89,62 @@ public static class SettingsStore
             settings.WebTranslationTimeoutMs = Math.Max(settings.WebTranslationTimeoutMs, 8000);
         }
 
+        if (settings.SchemaVersion < 6)
+        {
+            // v1.7 adopts a compact startup shell. The optional history-style live window
+            // remains available from the main toolbar, but no longer opens automatically.
+            settings.ShowLiveWindow = false;
+        }
+
+        if (settings.SchemaVersion < 7)
+        {
+            // v1.8 separates OCR/source language from target language. Existing projects were
+            // overwhelmingly English OCR, so preserve behavior by defaulting the source to English.
+            settings.SourceLanguage = string.IsNullOrWhiteSpace(settings.SourceLanguage) ? "en" : settings.SourceLanguage;
+            settings.OcrLanguageFollowsSource = true;
+            // Previous heuristic web extraction cached translator UI text. A clean Web-only strategy
+            // is the safest default for users without API credentials; configured API users can switch
+            // to HybridBalanced from the compact mode selector.
+            var hasEnabledApiOrLocal = settings.ApiProviders.Papago.Enabled ||
+                                       settings.ApiProviders.Google.Enabled ||
+                                       settings.ApiProviders.DeepL.Enabled ||
+                                       settings.ApiProviders.LibreTranslate.Enabled;
+            if (string.IsNullOrWhiteSpace(settings.TranslationStrategy) ||
+                (!hasEnabledApiOrLocal && settings.TranslationStrategy.Equals("HybridBalanced", StringComparison.OrdinalIgnoreCase)))
+                settings.TranslationStrategy = "WebOnly";
+        }
+
+
+        if (settings.SchemaVersion < 8)
+        {
+            // v1.9: automatic source detection is paired with a real multi-language OCR set.
+            // Existing English->Korean installs are migrated to eng+kor so bilingual screens do not
+            // turn Hangul into Latin garbage before translation. Users can change the set at any time.
+            if (settings.TargetLanguage.Equals("ko", StringComparison.OrdinalIgnoreCase) &&
+                (settings.SourceLanguage.Equals("en", StringComparison.OrdinalIgnoreCase) ||
+                 settings.SourceLanguage.Equals("auto", StringComparison.OrdinalIgnoreCase)))
+            {
+                settings.SourceLanguage = "auto";
+                settings.OcrLanguageFollowsSource = false;
+                if (string.IsNullOrWhiteSpace(settings.OcrLanguages) ||
+                    settings.OcrLanguages.Equals("eng", StringComparison.OrdinalIgnoreCase))
+                    settings.OcrLanguages = "eng+kor";
+            }
+            settings.SmartMixedText = true;
+        }
+
+
+        if (settings.SchemaVersion < 9)
+        {
+            // v2.0: background-first capture, faster startup defaults, independent overlay height, and UI locale.
+            settings.UiLanguage = string.IsNullOrWhiteSpace(settings.UiLanguage) ? "ko-KR" : settings.UiLanguage;
+            settings.CaptureMode = string.IsNullOrWhiteSpace(settings.CaptureMode) ? "BackgroundFirst" : settings.CaptureMode;
+            settings.BackgroundWarmup = true;
+            if (settings.PollIntervalMs >= 200) settings.PollIntervalMs = 150;
+            if (settings.SettleMs >= 150) settings.SettleMs = 100;
+            if (settings.ProviderWindowMs > 3000) settings.ProviderWindowMs = 2500;
+        }
+
         settings.LiveWindowWidth = Math.Clamp(settings.LiveWindowWidth, 360, 2400);
         settings.LiveWindowHeight = Math.Clamp(settings.LiveWindowHeight, 220, 1600);
         settings.LiveWindowFontSize = Math.Clamp(settings.LiveWindowFontSize, 12, 32);
@@ -89,14 +153,15 @@ public static class SettingsStore
 
         foreach (var roi in settings.Rois ?? [])
         {
-            roi.OverlayWidthScale = roi.OverlayWidthScale <= 0 ? 1.0 : Math.Clamp(roi.OverlayWidthScale, 0.45, 3.0);
+            roi.OverlayWidthScale = roi.OverlayWidthScale <= 0 ? 1.0 : Math.Clamp(roi.OverlayWidthScale, 0.25, 5.0);
+            roi.OverlayHeightScale = roi.OverlayHeightScale <= 0 ? 1.0 : Math.Clamp(roi.OverlayHeightScale, 0.35, 5.0);
             roi.OverlayOpacity = roi.OverlayOpacity <= 0 ? 0.82 : Math.Clamp(roi.OverlayOpacity, 0.10, 1.0);
             roi.OverlayFontSize = roi.OverlayFontSize <= 0 ? 17 : Math.Clamp(roi.OverlayFontSize, 10, 42);
             roi.OverlayOffsetX = Math.Clamp(roi.OverlayOffsetX, -1000, 1000);
             roi.OverlayOffsetY = Math.Clamp(roi.OverlayOffsetY, -800, 800);
         }
 
-        settings.SchemaVersion = 5;
+        settings.SchemaVersion = 9;
         return settings;
     }
 
@@ -113,5 +178,5 @@ public static class SettingsStore
         }
     }
 
-    private static AppSettings CreateDefault() => new() { SchemaVersion = 5 };
+    private static AppSettings CreateDefault() => new() { SchemaVersion = 9, TranslationStrategy = "WebOnly", SourceLanguage = "auto", OcrLanguages = "eng+kor", OcrLanguageFollowsSource = false, SmartMixedText = true };
 }

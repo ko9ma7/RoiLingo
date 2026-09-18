@@ -10,6 +10,7 @@ public sealed class RoiDefinition
     public double Width { get; set; }
     public double Height { get; set; }
     public string? OcrLanguagesOverride { get; set; }
+    public string? SourceLanguageOverride { get; set; }
     public string? TargetLanguageOverride { get; set; }
     public bool ShowOverlay { get; set; } = true;
     public bool EventMode { get; set; }
@@ -19,6 +20,7 @@ public sealed class RoiDefinition
     public double OverlayOffsetX { get; set; }
     public double OverlayOffsetY { get; set; }
     public double OverlayWidthScale { get; set; } = 1.0;
+    public double OverlayHeightScale { get; set; } = 1.0;
     public double OverlayOpacity { get; set; } = 0.82;
     public double OverlayFontSize { get; set; } = 17;
     public bool OverlayShowSource { get; set; } = true;
@@ -34,12 +36,14 @@ public sealed class RoiDefinition
         Width = Width,
         Height = Height,
         OcrLanguagesOverride = OcrLanguagesOverride,
+        SourceLanguageOverride = SourceLanguageOverride,
         TargetLanguageOverride = TargetLanguageOverride,
         ShowOverlay = ShowOverlay,
         EventMode = EventMode,
         OverlayOffsetX = OverlayOffsetX,
         OverlayOffsetY = OverlayOffsetY,
         OverlayWidthScale = OverlayWidthScale,
+        OverlayHeightScale = OverlayHeightScale,
         OverlayOpacity = OverlayOpacity,
         OverlayFontSize = OverlayFontSize,
         OverlayShowSource = OverlayShowSource,

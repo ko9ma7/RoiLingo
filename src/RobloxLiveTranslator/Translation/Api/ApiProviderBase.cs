@@ -15,14 +15,14 @@ public abstract class ApiProviderBase : ITranslationProvider
     public abstract TranslationProviderKind Kind { get; }
     public abstract bool IsConfigured { get; }
 
-    public async Task<string> TranslateAsync(string text, string targetLanguage, CancellationToken cancellationToken)
+    public async Task<string> TranslateAsync(string text, string sourceLanguage, string targetLanguage, CancellationToken cancellationToken)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linked.CancelAfter(_timeoutMs);
-        return await TranslateCoreAsync(text, targetLanguage, linked.Token);
+        return await TranslateCoreAsync(text, sourceLanguage, targetLanguage, linked.Token);
     }
 
-    protected abstract Task<string> TranslateCoreAsync(string text, string targetLanguage, CancellationToken ct);
+    protected abstract Task<string> TranslateCoreAsync(string text, string sourceLanguage, string targetLanguage, CancellationToken ct);
 
     protected static async Task<string> EnsureSuccessAndReadAsync(HttpResponseMessage response, CancellationToken ct)
     {

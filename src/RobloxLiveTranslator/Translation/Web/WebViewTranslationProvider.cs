@@ -1,18 +1,25 @@
+using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
 namespace RobloxLiveTranslator.Translation.Web;
 
+/// <summary>
+/// WebView2 translator used by the no-API-key mode.
+/// Each request navigates to an explicit source/target/text deep-link first.  This is intentionally
+/// more conservative than mutating a long-lived SPA editor because the target language must never
+/// leak from a previous request. DOM injection is retained only as a recovery path.
+/// </summary>
 public sealed class WebViewTranslationProvider : ITranslationProvider
 {
     private static readonly SemaphoreSlim ClipboardGate = new(1, 1);
     private readonly WebView2 _webView;
-    private readonly Func<string, string, string> _urlBuilder;
+    private readonly Func<string, string, string, string> _urlBuilder;
     private readonly string _resultScript;
     private readonly int _timeoutMs;
     private readonly bool _allowClipboardFallback;
     private readonly Action<string>? _diagnostic;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private string _lastResult = string.Empty;
+    private readonly Func<Task>? _ensureReady;
 
     public string Name { get; }
     public TranslationProviderKind Kind => TranslationProviderKind.Web;
@@ -21,36 +28,48 @@ public sealed class WebViewTranslationProvider : ITranslationProvider
     public WebViewTranslationProvider(
         string name,
         WebView2 webView,
-        Func<string, string, string> urlBuilder,
+        Func<string, string, string, string> urlBuilder,
         string resultScript,
         bool enabled,
         int timeoutMs,
         bool allowClipboardFallback,
-        Action<string>? diagnostic = null)
+        Action<string>? diagnostic = null,
+        Func<Task>? ensureReady = null)
     {
         Name = name;
         _webView = webView;
         _urlBuilder = urlBuilder;
         _resultScript = resultScript;
         IsConfigured = enabled;
-        _timeoutMs = Math.Clamp(timeoutMs, 3000, 25000);
+        _timeoutMs = Math.Clamp(timeoutMs, 4000, 25000);
         _allowClipboardFallback = allowClipboardFallback;
         _diagnostic = diagnostic;
+        _ensureReady = ensureReady;
     }
 
-    public async Task<string> TranslateAsync(string text, string targetLanguage, CancellationToken cancellationToken)
+    public async Task<string> TranslateAsync(
+        string text,
+        string sourceLanguage,
+        string targetLanguage,
+        CancellationToken cancellationToken)
     {
         if (!IsConfigured) throw new InvalidOperationException($"{Name} is disabled.");
         if (string.IsNullOrWhiteSpace(text)) return string.Empty;
         if (text.Length > 1800) text = text[..1800];
 
+        sourceLanguage = TranslationLanguages.Normalize(sourceLanguage);
+        targetLanguage = TranslationLanguages.Normalize(targetLanguage, false);
+        if (sourceLanguage != "auto" && sourceLanguage.Equals(targetLanguage, StringComparison.OrdinalIgnoreCase))
+            return text;
+
         await _gate.WaitAsync(cancellationToken);
         try
         {
             if (_webView.Dispatcher.CheckAccess())
-                return await TranslateOnUiThreadAsync(text, targetLanguage, cancellationToken);
+                return await TranslateOnUiThreadAsync(text, sourceLanguage, targetLanguage, cancellationToken);
 
-            var op = _webView.Dispatcher.InvokeAsync(() => TranslateOnUiThreadAsync(text, targetLanguage, cancellationToken));
+            var op = _webView.Dispatcher.InvokeAsync(
+                () => TranslateOnUiThreadAsync(text, sourceLanguage, targetLanguage, cancellationToken));
             return await op.Task.Unwrap();
         }
         finally
@@ -59,100 +78,94 @@ public sealed class WebViewTranslationProvider : ITranslationProvider
         }
     }
 
-    private async Task<string> TranslateOnUiThreadAsync(string text, string targetLanguage, CancellationToken cancellationToken)
+    private async Task<string> TranslateOnUiThreadAsync(
+        string text,
+        string sourceLanguage,
+        string targetLanguage,
+        CancellationToken cancellationToken)
     {
         if (_webView.CoreWebView2 is null)
-            await _webView.EnsureCoreWebView2Async();
+        {
+            if (_ensureReady is not null) await _ensureReady();
+            else await _webView.EnsureCoreWebView2Async();
+        }
         var core = _webView.CoreWebView2 ?? throw new InvalidOperationException($"{Name} WebView2 초기화에 실패했습니다.");
         await WebCopyBridge.EnsureInstalledAsync(core);
+
+        // The target language is encoded on EVERY request. This prevents a manually changed translator
+        // tab (for example Chinese) from contaminating a Korean translation request.
+        var requestUrl = _urlBuilder(text, sourceLanguage, targetLanguage);
+        await NavigateAsync(core, requestUrl, cancellationToken);
+
+        var sourceReady = await WaitForSourceAsync(core, text, cancellationToken);
+        if (!sourceReady)
+        {
+            sourceReady = await WebInputInjector.EnsureSourceTextAsync(core, Name, text, cancellationToken);
+            if (sourceReady)
+                _diagnostic?.Invoke($"{Name}: 딥링크 입력 확인 실패 → 실제 입력칸 직접 입력으로 복구");
+        }
+        else
+        {
+            _diagnostic?.Invoke($"{Name}: 원문 전달 확인 / 목표 {TranslationLanguages.DisplayName(targetLanguage)}");
+        }
+
+        if (!sourceReady)
+            throw new InvalidOperationException($"{Name}: 원문 입력을 확인하지 못했습니다. 사이트 구조가 변경되었을 수 있습니다.");
+
         var clipboardBefore = _allowClipboardFallback ? WebResultExtractor.ReadClipboardText() : string.Empty;
-
-        // Navigate with the site's deep link first. Some translator sites intermittently ignore
-        // query-string source text after a SPA/UI update, so v1.6 verifies the source editor and
-        // injects the OCR text through the real input element as a fallback. This restores the
-        // visible "OCR text -> web translator" step even when the deep link stops populating.
-        core.Navigate(_urlBuilder(text, targetLanguage));
-        await Task.Delay(650, cancellationToken);
-        var sourceReady = await WebInputInjector.EnsureSourceTextAsync(core, Name, text, cancellationToken);
-        _diagnostic?.Invoke($"{Name}: 원문 전달 {(sourceReady ? "확인" : "재시도 예정")}");
-
         var started = Stopwatch.StartNew();
-        var sourceReinjected = false;
-        string? stableCandidate = null;
+        string stableText = string.Empty;
         string stableMethod = "none";
         var stableCount = 0;
-        long lastAccessibilityProbeMs = -10000;
-        var copyAttempted = false;
-        var copyBridgeAttempts = 0;
-        var visualOcrAttempted = false;
+        var copyBridgeTried = false;
+        var clipboardTried = false;
+        var visualTried = false;
 
         while (started.ElapsedMilliseconds < _timeoutMs)
         {
             cancellationToken.ThrowIfCancellationRequested();
             await Task.Delay(240, cancellationToken);
+            var elapsed = started.ElapsedMilliseconds;
 
-            var elapsedMs = started.ElapsedMilliseconds;
-
-            // A navigation may finish after our first injection attempt. Verify once more after the
-            // page has settled instead of silently waiting on an empty source editor.
-            if (!sourceReady && !sourceReinjected && elapsedMs >= 900)
+            // Do not extract anything unless the source sentence is still present. This single guard
+            // eliminates most false positives from language menus, banners and browser chrome.
+            if (!await WebInputInjector.IsSourcePresentAsync(core, text))
             {
-                sourceReinjected = true;
-                sourceReady = await WebInputInjector.EnsureSourceTextAsync(core, Name, text, cancellationToken);
-                _diagnostic?.Invoke($"{Name}: 원문 재전달 {(sourceReady ? "성공" : "실패")}");
+                if (elapsed < 3500)
+                {
+                    var recovered = await WebInputInjector.EnsureSourceTextAsync(core, Name, text, cancellationToken);
+                    if (recovered) _diagnostic?.Invoke($"{Name}: SPA 갱신 후 원문 재입력 성공");
+                }
+                continue;
             }
 
-            var useAccessibility = elapsedMs >= 1700 && elapsedMs - lastAccessibilityProbeMs >= 1000;
-            if (useAccessibility) lastAccessibilityProbeMs = elapsedMs;
-            var extraction = await WebResultExtractor.TryExtractAsync(core, _resultScript, text, targetLanguage, Name, useAccessibility);
+            var extraction = await WebResultExtractor.TryExtractAsync(
+                core, _resultScript, text, targetLanguage, Name, includeAccessibility: false);
             var candidate = Normalize(extraction.Text);
 
-            var lowConfidenceMethod = extraction.Method is "visible-dom-snapshot" or "dom-heuristic" or "body-text" or "accessibility-tree";
-
-            // First try an in-page copy bridge. When Papago/Google/DeepL's Copy button calls
-            // navigator.clipboard.writeText, WebView2 receives the exact translated string before
-            // the OS clipboard permission/path can fail. This is substantially more robust than CSS selectors.
-            var bridgeDue = copyBridgeAttempts == 0 ? elapsedMs >= 1250 : elapsedMs >= 3000;
-            if ((string.IsNullOrWhiteSpace(candidate) || lowConfidenceMethod) &&
-                copyBridgeAttempts < 2 && bridgeDue)
+            if (string.IsNullOrWhiteSpace(candidate) && !copyBridgeTried && elapsed >= 1400)
             {
-                copyBridgeAttempts++;
-                var bridgeText = Normalize(await WebCopyBridge.CaptureFromTargetCopyButtonAsync(core, cancellationToken));
-                if (WebResultExtractor.IsTranslationCandidate(bridgeText, text, targetLanguage))
+                copyBridgeTried = true;
+                var bridge = Normalize(await WebCopyBridge.CaptureFromTargetCopyButtonAsync(core, cancellationToken));
+                if (WebResultExtractor.IsTranslationCandidate(bridge, text, targetLanguage))
                 {
-                    candidate = bridgeText;
-                    extraction = (bridgeText, "copy-bridge");
+                    candidate = bridge;
+                    extraction = (bridge, "copy-bridge");
                 }
             }
 
-            // If the user can visibly see a translation but DOM/copy extraction still fails,
-            // OCR the rendered WebView's target pane. This is slower, therefore only once/request.
-            if (!visualOcrAttempted && elapsedMs >= 3200 &&
-                (string.IsNullOrWhiteSpace(candidate) || lowConfidenceMethod))
+            if (string.IsNullOrWhiteSpace(candidate) && _allowClipboardFallback && !clipboardTried && elapsed >= 2100)
             {
-                visualOcrAttempted = true;
-                var visual = Normalize(await WebVisualOcrFallback.TryReadAsync(
-                    core, Name, text, targetLanguage, cancellationToken));
-                if (WebResultExtractor.IsTranslationCandidate(visual, text, targetLanguage))
-                {
-                    candidate = visual;
-                    extraction = (visual, "webview-visual-ocr");
-                }
-            }
-
-            // Last clipboard fallback for sites that do not use navigator.clipboard.writeText.
-            if (_allowClipboardFallback && elapsedMs >= 1800 && !copyAttempted &&
-                (string.IsNullOrWhiteSpace(candidate) || lowConfidenceMethod))
-            {
-                copyAttempted = true;
+                clipboardTried = true;
                 await ClipboardGate.WaitAsync(cancellationToken);
                 try
                 {
-                    var copied = await WebResultExtractor.TryCopyButtonClipboardAsync(core, text, targetLanguage, clipboardBefore);
-                    var copiedCandidate = Normalize(copied.Text);
-                    if (!string.IsNullOrWhiteSpace(copiedCandidate))
+                    var copied = await WebResultExtractor.TryCopyButtonClipboardAsync(
+                        core, text, targetLanguage, clipboardBefore);
+                    var copiedText = Normalize(copied.Text);
+                    if (WebResultExtractor.IsTranslationCandidate(copiedText, text, targetLanguage))
                     {
-                        candidate = copiedCandidate;
+                        candidate = copiedText;
                         extraction = copied;
                     }
                 }
@@ -162,34 +175,92 @@ public sealed class WebViewTranslationProvider : ITranslationProvider
                 }
             }
 
-            if (string.IsNullOrWhiteSpace(candidate)) continue;
-            if (Equivalent(candidate, text) && started.ElapsedMilliseconds < 2200) continue;
-            if (started.ElapsedMilliseconds < 1400 && Equivalent(candidate, _lastResult)) continue;
+            if (string.IsNullOrWhiteSpace(candidate) && !visualTried && elapsed >= 3800)
+            {
+                visualTried = true;
+                var visual = Normalize(await WebVisualOcrFallback.TryReadAsync(
+                    core, Name, text, targetLanguage, cancellationToken));
+                if (WebResultExtractor.IsTranslationCandidate(visual, text, targetLanguage))
+                {
+                    candidate = visual;
+                    extraction = (visual, "webview-visual-ocr");
+                }
+            }
 
-            if (Equivalent(candidate, stableCandidate)) stableCount++;
+            if (!WebResultExtractor.IsTranslationCandidate(candidate, text, targetLanguage))
+                continue;
+
+            if (Equivalent(candidate, stableText)) stableCount++;
             else
             {
-                stableCandidate = candidate;
+                stableText = candidate;
                 stableMethod = extraction.Method;
                 stableCount = 1;
             }
 
-            var exactFallback = stableMethod is "copy-bridge" or "copy-button-clipboard" or "webview-visual-ocr";
-            var highConfidence = stableMethod is "known-selector" or "text-node-geometry" or "layout-anchor" or
-                                 "copy-bridge" or "copy-button-clipboard" or "webview-visual-ocr";
-            var lowConfidenceSettled = stableCount >= 2 && started.ElapsedMilliseconds >= 1800 &&
-                                       (!_allowClipboardFallback || copyAttempted);
-            if (exactFallback || (stableCount >= 2 && highConfidence) || lowConfidenceSettled)
+            var direct = stableMethod is "known-selector" or "copy-bridge" or "copy-button-clipboard";
+            if (direct || stableCount >= 2)
             {
-                _lastResult = candidate;
-                _diagnostic?.Invoke($"{Name}: 결과 읽기 성공 ({stableMethod}, {started.ElapsedMilliseconds}ms)");
+                _diagnostic?.Invoke($"{Name}: 결과 읽기 성공 ({stableMethod}, {elapsed}ms) → {TranslationLanguages.DisplayName(targetLanguage)}");
                 return candidate;
             }
         }
 
         throw new TimeoutException(
-            $"{Name} 페이지에는 번역이 보이지만 {_timeoutMs / 1000.0:0.#}초 안에 결과를 읽지 못했습니다. " +
-            "DOM/텍스트노드/접근성/복사브리지/클립보드/화면 OCR 폴백을 모두 시도했습니다. '번역 결과 읽기 테스트' 로그를 확인하세요.");
+            $"{Name}: 원문은 입력했지만 {_timeoutMs / 1000.0:0.#}초 안에 {TranslationLanguages.DisplayName(targetLanguage)} 번역 결과를 확인하지 못했습니다.");
+    }
+
+    private static async Task<bool> WaitForSourceAsync(
+        CoreWebView2 core,
+        string text,
+        CancellationToken cancellationToken)
+    {
+        for (var i = 0; i < 14; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (await WebInputInjector.IsSourcePresentAsync(core, text)) return true;
+            await Task.Delay(i < 5 ? 180 : 260, cancellationToken);
+        }
+        return false;
+    }
+
+    private static async Task NavigateAsync(CoreWebView2 core, string url, CancellationToken cancellationToken)
+    {
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Handler(object? _, CoreWebView2NavigationCompletedEventArgs e) => completion.TrySetResult(e.IsSuccess);
+        core.NavigationCompleted += Handler;
+        try
+        {
+            core.Navigate(url);
+            using var registration = cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken));
+            var finished = await Task.WhenAny(completion.Task, Task.Delay(6500, cancellationToken));
+            if (finished == completion.Task) _ = await completion.Task;
+            await WaitForDomReadyAsync(core, cancellationToken);
+        }
+        finally
+        {
+            core.NavigationCompleted -= Handler;
+        }
+    }
+
+    private static async Task WaitForDomReadyAsync(CoreWebView2 core, CancellationToken cancellationToken)
+    {
+        for (var i = 0; i < 20; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var state = await core.ExecuteScriptAsync("document.readyState");
+                if (state.Contains("complete", StringComparison.OrdinalIgnoreCase) ||
+                    state.Contains("interactive", StringComparison.OrdinalIgnoreCase))
+                {
+                    await Task.Delay(300, cancellationToken);
+                    return;
+                }
+            }
+            catch (InvalidOperationException) { }
+            await Task.Delay(160, cancellationToken);
+        }
     }
 
     private static string Normalize(string? value)

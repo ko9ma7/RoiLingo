@@ -15,39 +15,21 @@ internal static class WebResultExtractor
         string providerName,
         bool includeAccessibility)
     {
+        // Only return evidence tied to the actual source/target editor. Earlier versions also
+        // scanned the whole page body, which could mistake language menus and banners for output.
         var known = await ExecuteStringScriptAsync(core, knownSelectorScript);
         if (IsTranslationCandidate(known, sourceText, targetLanguage))
             return (Normalize(known), "known-selector");
 
-        // Modern React/Vue translator pages frequently put the useful text inside a tiny nested
-        // text node while the surrounding element.innerText also contains language menus/actions.
-        // Range geometry lets us score only the text that is actually painted in the right pane.
         var textNodeScript = WebTranslationScripts.BuildTextNodeTargetResultScript(sourceText, targetLanguage, providerName);
         var textNode = await ExecuteStringScriptAsync(core, textNodeScript);
         if (IsTranslationCandidate(textNode, sourceText, targetLanguage))
             return (Normalize(textNode), "text-node-geometry");
 
-        // Prefer a layout-anchored extraction: find the source sentence on the page and
-        // score target-language text in the mirrored/right translation pane at a similar Y position.
-        // This avoids choosing menus such as "한국어 영어 일본어 중국어 ..." as a translation.
         var anchoredScript = WebTranslationScripts.BuildAnchoredTargetResultScript(sourceText, targetLanguage, providerName);
         var anchored = await ExecuteStringScriptAsync(core, anchoredScript);
         if (IsTranslationCandidate(anchored, sourceText, targetLanguage))
             return (Normalize(anchored), "layout-anchor");
-
-        var snapshot = await TryVisibleDomSnapshotAsync(core, sourceText, targetLanguage);
-        if (IsTranslationCandidate(snapshot, sourceText, targetLanguage))
-            return (Normalize(snapshot), "visible-dom-snapshot");
-
-        var heuristicScript = WebTranslationScripts.BuildHeuristicResultScript(sourceText, targetLanguage, providerName);
-        var heuristic = await ExecuteStringScriptAsync(core, heuristicScript);
-        if (IsTranslationCandidate(heuristic, sourceText, targetLanguage))
-            return (Normalize(heuristic), "dom-heuristic");
-
-        var body = await ExecuteStringScriptAsync(core, "(() => document.body ? (document.body.innerText || '') : '')()");
-        var bodyCandidate = ExtractFromBody(body, sourceText, targetLanguage);
-        if (IsTranslationCandidate(bodyCandidate, sourceText, targetLanguage))
-            return (Normalize(bodyCandidate), "body-text");
 
         if (includeAccessibility)
         {
@@ -328,15 +310,9 @@ internal static class WebResultExtractor
         if (TextSimilarity.Ratio(normalized, source) > 0.90) return false;
         if (LooksLikeTranslatorChromeText(normalized)) return false;
 
-        // For non-Latin target languages the target script is a strong validation signal.
-        // Keep the threshold intentionally low because numbers, product names and Latin acronyms
-        // can legitimately appear inside a translated sentence.
-        var lang = targetLanguage.ToLowerInvariant();
-        if (lang.StartsWith("ko") || lang.StartsWith("ja") || lang.StartsWith("zh") ||
-            lang.StartsWith("ru") || lang.StartsWith("el"))
-        {
-            if (TargetScriptRatio(normalized, targetLanguage) < 0.12) return false;
-        }
+        // Require some evidence of the requested target script for every supported language.
+        // This is the last guard against accepting translator chrome in the browser UI language.
+        if (TargetScriptRatio(normalized, targetLanguage) < 0.12) return false;
 
         // A real translation is normally in the same order of magnitude as its source.
         // This rejects large navigation/menu dumps while preserving short UI/game strings.
@@ -355,7 +331,9 @@ internal static class WebResultExtractor
         [
             "papago", "papago+", "로그인", "번역기록", "즐겨찾기", "용어집", "번역 설정",
             "google 번역", "google translate", "deepl", "translator", "텍스트", "이미지", "문서", "웹사이트",
-            "영어 감지", "한국어", "영어", "일본어", "중국어", "copy", "복사", "공유", "share"
+            "영어 감지", "언어 감지", "한국어", "영어", "일본어", "중국어", "중국어(간체)", "중국어(번체)",
+            "스페인어", "프랑스어", "독일어", "러시아어", "포르투갈어", "이탈리아어", "베트남어",
+            "태국어", "인도네시아어", "힌디어", "아랍어", "copy", "복사", "공유", "share", "번역 결과"
         ];
         if (compact.Length <= 100 && exactLabels.Any(label => compact.Equals(label, StringComparison.OrdinalIgnoreCase)))
             return true;
@@ -375,7 +353,9 @@ internal static class WebResultExtractor
         string[] chromePhrases =
         [
             "감지된 언어가 없습니다", "입력 언어를 확인해 주세요", "번역 방법", "텍스트 이미지 문서",
-            "플러스 소개", "번역 설정", "번역기록", "언어 감지", "언어 선택"
+            "플러스 소개", "번역 설정", "번역기록", "언어 감지", "언어 선택",
+            "웹에서 더 새로워진 파파고", "측면 패널", "저장된 번역", "번역 결과",
+            "type the text to translate", "select target language", "select source language"
         ];
         if (chromePhrases.Any(p => compact.Contains(p, StringComparison.OrdinalIgnoreCase)))
             return true;
@@ -403,8 +383,10 @@ internal static class WebResultExtractor
         if (language.StartsWith("ja")) return c is >= '\u3040' and <= '\u30FF' || c is >= '\u4E00' and <= '\u9FFF';
         if (language.StartsWith("zh")) return c is >= '\u3400' and <= '\u9FFF';
         if (language.StartsWith("ru")) return c is >= '\u0400' and <= '\u04FF';
-        if (language.StartsWith("el")) return c is >= '\u0370' and <= '\u03FF';
-        return c is >= 'A' and <= 'Z' || c is >= 'a' and <= 'z';
+        if (language.StartsWith("th")) return c is >= '\u0E00' and <= '\u0E7F';
+        if (language.StartsWith("hi")) return c is >= '\u0900' and <= '\u097F';
+        if (language.StartsWith("ar")) return c is >= '\u0600' and <= '\u06FF' || c is >= '\u0750' and <= '\u077F';
+        return c is >= 'A' and <= 'Z' || c is >= 'a' and <= 'z' || c is >= '\u00C0' and <= '\u024F';
     }
 
     private static string Normalize(string? value)

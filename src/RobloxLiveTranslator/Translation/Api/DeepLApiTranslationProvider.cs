@@ -17,15 +17,18 @@ public sealed class DeepLApiTranslationProvider : ApiProviderBase
 
     private string BaseUrl => _free ? "https://api-free.deepl.com" : "https://api.deepl.com";
 
-    protected override async Task<string> TranslateCoreAsync(string text, string targetLanguage, CancellationToken ct)
+    protected override async Task<string> TranslateCoreAsync(string text, string sourceLanguage, string targetLanguage, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + "/v2/translate");
         request.Headers.TryAddWithoutValidation("Authorization", "DeepL-Auth-Key " + _apiKey);
-        request.Content = new StringContent(JsonSerializer.Serialize(new
+        var payload = new Dictionary<string, object?>
         {
-            text = new[] { text },
-            target_lang = MapTarget(targetLanguage)
-        }), Encoding.UTF8, "application/json");
+            ["text"] = new[] { text },
+            ["target_lang"] = TranslationLanguages.ToDeepLApi(targetLanguage)
+        };
+        var source = TranslationLanguages.Normalize(sourceLanguage);
+        if (source != "auto") payload["source_lang"] = TranslationLanguages.ToDeepLApiSource(source);
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         using var response = await Http.SendAsync(request, ct);
         var body = await EnsureSuccessAndReadAsync(response, ct);
         using var doc = JsonDocument.Parse(body);
@@ -44,13 +47,4 @@ public sealed class DeepLApiTranslationProvider : ApiProviderBase
         if (!root.TryGetProperty("character_count", out var used) || !root.TryGetProperty("character_limit", out var limit)) return null;
         return (used.GetInt64(), limit.GetInt64());
     }
-
-    private static string MapTarget(string value) => value switch
-    {
-        "ko" => "KO",
-        "ja" => "JA",
-        "zh" or "zh-CN" => "ZH-HANS",
-        "en" => "EN-US",
-        _ => value.ToUpperInvariant()
-    };
 }

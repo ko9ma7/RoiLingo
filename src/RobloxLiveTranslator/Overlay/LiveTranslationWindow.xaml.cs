@@ -1,5 +1,6 @@
 using System.Windows;
 using RobloxLiveTranslator.Models;
+using RobloxLiveTranslator.Native;
 
 namespace RobloxLiveTranslator.Overlay;
 
@@ -26,7 +27,7 @@ public partial class LiveTranslationWindow : Window
             _persistSettings();
         };
 
-        Loaded += (_, _) => ApplySettings();
+        Loaded += (_, _) => { CaptureExclusion.Apply(this); ApplySettings(); };
         LocationChanged += (_, _) => ScheduleSave();
         SizeChanged += (_, _) => ScheduleSave();
         Closed += (_, _) =>

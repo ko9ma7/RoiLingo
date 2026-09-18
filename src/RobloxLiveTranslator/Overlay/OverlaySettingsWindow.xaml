@@ -16,7 +16,7 @@
             <StackPanel>
                 <TextBlock Text="게임 위 반투명 번역 오버레이" FontWeight="Bold" FontSize="15"/>
                 <TextBlock Margin="0,4,0,0" Foreground="#555" TextWrapping="Wrap"
-                           Text="ROI별로 위치 보정, 너비, 투명도, 글자 크기, 표시 내용을 조절합니다. 감시 중에도 즉시 반영됩니다."/>
+                           Text="ROI별로 위치 보정, 너비/높이, 투명도, 글자 크기, 표시 내용을 조절합니다. 감시 중에도 즉시 반영됩니다."/>
             </StackPanel>
         </Border>
 
@@ -30,7 +30,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="대상 ROI" VerticalAlignment="Center" Margin="0,6"/>
@@ -48,27 +48,32 @@
                 <TextBlock Grid.Row="2" Grid.Column="2" x:Name="OffsetYText" VerticalAlignment="Center" HorizontalAlignment="Right"/>
 
                 <TextBlock Grid.Row="3" Text="오버레이 너비" VerticalAlignment="Center" Margin="0,10,8,10"/>
-                <Slider Grid.Row="3" Grid.Column="1" x:Name="WidthScaleSlider" Minimum="0.45" Maximum="3"
+                <Slider Grid.Row="3" Grid.Column="1" x:Name="WidthScaleSlider" Minimum="0.25" Maximum="5"
                         TickFrequency="0.05" ValueChanged="Slider_ValueChanged" Margin="0,8"/>
                 <TextBlock Grid.Row="3" Grid.Column="2" x:Name="WidthScaleText" VerticalAlignment="Center" HorizontalAlignment="Right"/>
 
-                <TextBlock Grid.Row="4" Text="배경 불투명도" VerticalAlignment="Center" Margin="0,10,8,10"/>
-                <Slider Grid.Row="4" Grid.Column="1" x:Name="OpacitySlider" Minimum="0.1" Maximum="1"
+                <TextBlock Grid.Row="4" Text="오버레이 높이" VerticalAlignment="Center" Margin="0,10,8,10"/>
+                <Slider Grid.Row="4" Grid.Column="1" x:Name="HeightScaleSlider" Minimum="0.35" Maximum="5"
                         TickFrequency="0.05" ValueChanged="Slider_ValueChanged" Margin="0,8"/>
-                <TextBlock Grid.Row="4" Grid.Column="2" x:Name="OpacityText" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="4" Grid.Column="2" x:Name="HeightScaleText" VerticalAlignment="Center" HorizontalAlignment="Right"/>
 
-                <TextBlock Grid.Row="5" Text="번역 글자 크기" VerticalAlignment="Center" Margin="0,10,8,10"/>
-                <Slider Grid.Row="5" Grid.Column="1" x:Name="FontSizeSlider" Minimum="10" Maximum="42"
+                <TextBlock Grid.Row="5" Text="배경 불투명도" VerticalAlignment="Center" Margin="0,10,8,10"/>
+                <Slider Grid.Row="5" Grid.Column="1" x:Name="OpacitySlider" Minimum="0.1" Maximum="1"
+                        TickFrequency="0.05" ValueChanged="Slider_ValueChanged" Margin="0,8"/>
+                <TextBlock Grid.Row="5" Grid.Column="2" x:Name="OpacityText" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+
+                <TextBlock Grid.Row="6" Text="번역 글자 크기" VerticalAlignment="Center" Margin="0,10,8,10"/>
+                <Slider Grid.Row="6" Grid.Column="1" x:Name="FontSizeSlider" Minimum="10" Maximum="42"
                         TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Slider_ValueChanged" Margin="0,8"/>
-                <TextBlock Grid.Row="5" Grid.Column="2" x:Name="FontSizeText" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="6" Grid.Column="2" x:Name="FontSizeText" VerticalAlignment="Center" HorizontalAlignment="Right"/>
 
-                <TextBlock Grid.Row="6" Text="표시 내용" VerticalAlignment="Top" Margin="0,10,8,10"/>
-                <StackPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,8">
+                <TextBlock Grid.Row="7" Text="표시 내용" VerticalAlignment="Top" Margin="0,10,8,10"/>
+                <StackPanel Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,8">
                     <CheckBox x:Name="ShowSourceCheck" Content="OCR 원문 같이 표시" Click="CheckBox_Click"/>
                     <CheckBox x:Name="ShowMetaCheck" Content="Provider / OCR 정확도 / 교차 일치도 표시" Margin="0,6,0,0" Click="CheckBox_Click"/>
                 </StackPanel>
 
-                <TextBlock Grid.Row="7" Grid.ColumnSpan="3" Margin="0,14,0,4" Foreground="#666" TextWrapping="Wrap"
+                <TextBlock Grid.Row="8" Grid.ColumnSpan="3" Margin="0,14,0,4" Foreground="#666" TextWrapping="Wrap"
                            Text="위치 보정 0/0은 기존처럼 ROI 아래(공간이 없으면 위)에 자동 배치됩니다. 값은 각 ROI별로 자동 저장됩니다."/>
             </Grid>
         </ScrollViewer>

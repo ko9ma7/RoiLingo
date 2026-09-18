@@ -1,0 +1,3 @@
+RoiLingo 2.0.0
+Full source package
+Target: .NET 8 / WPF / Windows 10/11 x64

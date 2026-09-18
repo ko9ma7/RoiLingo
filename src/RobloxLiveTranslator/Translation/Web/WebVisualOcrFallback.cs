@@ -15,26 +15,7 @@ internal static class WebVisualOcrFallback
     private static readonly Lazy<TesseractOcrService> Ocr = new(() =>
         new TesseractOcrService(new ModelManager(), "Fast"));
 
-    public static string MapTesseractLanguage(string targetLanguage) => targetLanguage.ToLowerInvariant() switch
-    {
-        "ko" or "ko-kr" => "kor",
-        "en" or "en-us" or "en-gb" => "eng",
-        "ja" or "ja-jp" => "jpn",
-        "zh" or "zh-cn" or "zh-hans" => "chi_sim",
-        "zh-tw" or "zh-hant" => "chi_tra",
-        "es" => "spa",
-        "fr" => "fra",
-        "de" => "deu",
-        "ru" => "rus",
-        "pt" or "pt-br" or "pt-pt" => "por",
-        "it" => "ita",
-        "vi" => "vie",
-        "th" => "tha",
-        "id" => "ind",
-        "hi" => "hin",
-        "ar" => "ara",
-        _ => "eng"
-    };
+    public static string MapTesseractLanguage(string targetLanguage) => TranslationLanguages.ToTesseract(targetLanguage);
 
     public static async Task<string> TryReadAsync(
         CoreWebView2 core,

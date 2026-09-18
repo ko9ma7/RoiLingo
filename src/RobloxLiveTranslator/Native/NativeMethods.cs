@@ -13,6 +13,9 @@ internal static class NativeMethods
     public const long WS_EX_NOACTIVATE = 0x08000000L;
     public const uint SWP_NOACTIVATE = 0x0010;
     public const uint SWP_SHOWWINDOW = 0x0040;
+    public const uint WDA_NONE = 0x00000000;
+    public const uint WDA_MONITOR = 0x00000001;
+    public const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
     public static readonly IntPtr HWND_TOPMOST = new(-1);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -55,6 +58,9 @@ internal static class NativeMethods
     public static extern bool IsWindowVisible(IntPtr hWnd);
 
     [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
     public static extern bool IsIconic(IntPtr hWnd);
 
     [DllImport("user32.dll")]
@@ -68,6 +74,10 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
     private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);

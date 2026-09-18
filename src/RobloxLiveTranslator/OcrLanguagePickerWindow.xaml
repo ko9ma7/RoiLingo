@@ -1,0 +1,48 @@
+<Window x:Class="RobloxLiveTranslator.OcrLanguagePickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="OCR 언어 선택" Width="520" Height="470" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="ROI에서 실제로 보일 수 있는 언어를 여러 개 선택하세요." FontWeight="SemiBold" FontSize="14"/>
+        <TextBlock Grid.Row="1" Margin="0,5,0,12" Foreground="#666" TextWrapping="Wrap"
+                   Text="예: 영어와 한국어가 함께 보이면 영어 + 한국어를 선택합니다. 너무 많은 언어를 선택하면 OCR 속도와 정확도가 떨어질 수 있습니다."/>
+        <UniformGrid Grid.Row="2" Columns="2" Rows="8">
+            <CheckBox x:Name="EngCheck" Content="영어 (eng)" Margin="8"/>
+            <CheckBox x:Name="KorCheck" Content="한국어 (kor)" Margin="8"/>
+            <CheckBox x:Name="JpnCheck" Content="일본어 (jpn)" Margin="8"/>
+            <CheckBox x:Name="ChiSimCheck" Content="중국어 간체 (chi_sim)" Margin="8"/>
+            <CheckBox x:Name="ChiTraCheck" Content="중국어 번체 (chi_tra)" Margin="8"/>
+            <CheckBox x:Name="SpaCheck" Content="스페인어 (spa)" Margin="8"/>
+            <CheckBox x:Name="FraCheck" Content="프랑스어 (fra)" Margin="8"/>
+            <CheckBox x:Name="DeuCheck" Content="독일어 (deu)" Margin="8"/>
+            <CheckBox x:Name="RusCheck" Content="러시아어 (rus)" Margin="8"/>
+            <CheckBox x:Name="PorCheck" Content="포르투갈어 (por)" Margin="8"/>
+            <CheckBox x:Name="ItaCheck" Content="이탈리아어 (ita)" Margin="8"/>
+            <CheckBox x:Name="VieCheck" Content="베트남어 (vie)" Margin="8"/>
+            <CheckBox x:Name="ThaCheck" Content="태국어 (tha)" Margin="8"/>
+            <CheckBox x:Name="IndCheck" Content="인도네시아어 (ind)" Margin="8"/>
+            <CheckBox x:Name="HinCheck" Content="힌디어 (hin)" Margin="8"/>
+            <CheckBox x:Name="AraCheck" Content="아랍어 (ara)" Margin="8"/>
+        </UniformGrid>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,12">
+            <Button Content="영어 + 한국어" Click="EnglishKoreanPreset_Click" Padding="10,5" Margin="0,0,6,0"/>
+            <Button Content="동아시아" Click="EastAsiaPreset_Click" Padding="10,5" Margin="0,0,6,0"/>
+            <Button Content="모두 해제" Click="Clear_Click" Padding="10,5"/>
+        </StackPanel>
+        <DockPanel Grid.Row="4">
+            <TextBlock x:Name="SummaryText" VerticalAlignment="Center" Foreground="#555"/>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="취소" IsCancel="True" Padding="14,6" Margin="4,0"/>
+                <Button Content="적용" IsDefault="True" Click="Apply_Click" Padding="14,6" Margin="4,0"/>
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>

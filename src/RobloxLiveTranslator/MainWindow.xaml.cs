@@ -16,6 +16,10 @@ namespace RobloxLiveTranslator;
 
 public partial class MainWindow : Window
 {
+    private const double CompactWindowWidth = 860;
+    private const double CompactWindowHeight = 190;
+    private const double AdvancedWindowMinWidth = 1120;
+    private const double AdvancedWindowMinHeight = 760;
     private readonly AppSettings _settings;
     private readonly HistoryStore _historyStore;
     private readonly WebTranslatorRuntime _webRuntime = new();
@@ -47,33 +51,31 @@ public partial class MainWindow : Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        CaptureExclusion.Apply(this);
         LoadUi();
         HistoryGrid.ItemsSource = _history;
         CollectionViewSource.GetDefaultView(_history).Filter = HistoryFilter;
         await LoadHistoryAsync();
         RefreshApiUsageText();
+        StatusText.Text = UiText.Get(_settings.UiLanguage, "ready");
 
+        // Keep startup lightweight. WebView2 is initialized lazily when translation starts
+        // or when the user explicitly opens/tests the web translator settings.
         if (_settings.WebProviders.Papago || _settings.WebProviders.Google || _settings.WebProviders.DeepL)
-        {
-            try
-            {
-                await InitializeWebTranslatorsAsync(navigateHome: true);
-                AddLog("WEB     Papago / Google / DeepL WebView2 준비 완료");
-            }
-            catch (Exception ex)
-            {
-                // WebView failure must not disable API/local translation mode.
-                AddLog("WEB     초기화 실패: " + ex.Message);
-                StatusText.Text = "웹 번역 초기화 실패. API/로컬 번역은 계속 사용할 수 있습니다.";
-            }
-        }
+            AddLog("WEB     웹 번역기는 실시간 번역 시작 시 준비됩니다.");
     }
 
     private void LoadUi()
     {
+        SelectComboByTag(UiLanguageCombo, _settings.UiLanguage);
         OcrLanguagesBox.Text = _settings.OcrLanguages;
         SelectComboByTag(OcrModeCombo, _settings.OcrMode);
+        SelectComboByTag(CaptureModeCombo, _settings.CaptureMode);
+        SelectComboByTag(SourceLanguageCombo, _settings.SourceLanguage);
         SelectComboByTag(TargetLanguageCombo, _settings.TargetLanguage);
+        OcrLanguageFollowsSourceCheck.IsChecked = _settings.OcrLanguageFollowsSource;
+        SmartMixedTextCheck.IsChecked = _settings.SmartMixedText;
+        RefreshOcrLanguageButton();
         PollIntervalBox.Text = _settings.PollIntervalMs.ToString();
         ChangeThresholdBox.Text = _settings.ChangeThreshold.ToString("0.000");
         AutoSaveHistoryCheck.IsChecked = _settings.AutoSaveHistory;
@@ -111,15 +113,91 @@ public partial class MainWindow : Window
         DeepLApiKeyBox.Password = _secrets.DeepLApiKey;
         LibreApiKeyBox.Password = _secrets.LibreTranslateApiKey;
         RefreshRoiGrid();
+        ApplyUiLanguage();
+    }
+
+    private void UiLanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        _settings.UiLanguage = UiText.NormalizeLocale((UiLanguageCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString());
+        ApplyUiLanguage();
+        SaveAll();
+    }
+
+    private void ApplyUiLanguage()
+    {
+        var locale = UiText.NormalizeLocale(_settings.UiLanguage);
+        PickWindowButton.Content = UiText.Get(locale, "target");
+        EditRoiButton.Content = UiText.Get(locale, "roi");
+        StartButton.Content = UiText.Get(locale, "start");
+        StopButton.Content = UiText.Get(locale, "stop");
+        QuickOverlayEditButton.Content = UiText.Get(locale, "overlay");
+        LiveWindowButton.Content = UiText.Get(locale, "live");
+        AdvancedSettingsButton.Content = UiText.Get(locale, "settings");
+        SourceLabel.Text = UiText.Get(locale, "source");
+        TargetLabel.Text = UiText.Get(locale, "translate");
+        ModeLabel.Text = UiText.Get(locale, "mode");
+        AdvancedTitleText.Text = UiText.Get(locale, "advanced");
+        AdvancedSaveButton.Content = UiText.Get(locale, "save");
+        AdvancedCloseButton.Content = UiText.Get(locale, "close");
+        GeneralTab.Header = UiText.Get(locale, "tab.general");
+        WebTab.Header = UiText.Get(locale, "tab.web");
+        ApiTab.Header = UiText.Get(locale, "tab.api");
+        HistoryTab.Header = UiText.Get(locale, "tab.history");
+
+        if (_monitor is null) StatusText.Text = UiText.Get(locale, "ready");
+        LocalizeLanguageCombo(SourceLanguageCombo, locale);
+        LocalizeLanguageCombo(TargetLanguageCombo, locale);
+        var strategyKeys = new[] { "strategy.web", "strategy.hybrid", "strategy.api", "strategy.max" };
+        for (var i = 0; i < TranslationStrategyCombo.Items.Count && i < strategyKeys.Length; i++)
+            if (TranslationStrategyCombo.Items[i] is ComboBoxItem item) item.Content = UiText.Get(locale, strategyKeys[i]);
+        LocalizeTree(this, locale);
+        // Language/strategy items have semantic Tags, so re-apply them after literal traversal.
+        LocalizeLanguageCombo(SourceLanguageCombo, locale);
+        LocalizeLanguageCombo(TargetLanguageCombo, locale);
+        for (var i = 0; i < TranslationStrategyCombo.Items.Count && i < strategyKeys.Length; i++)
+            if (TranslationStrategyCombo.Items[i] is ComboBoxItem item) item.Content = UiText.Get(locale, strategyKeys[i]);
+    }
+
+    private static void LocalizeTree(DependencyObject root, string locale)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(root))
+        {
+            if (child is not DependencyObject obj) continue;
+            if (obj is TextBlock tb) tb.Text = UiText.TranslateLiteral(locale, tb.Text);
+            if (obj is HeaderedContentControl hc && hc.Header is string hs) hc.Header = UiText.TranslateLiteral(locale, hs);
+            if (obj is ContentControl cc && cc.Content is string cs) cc.Content = UiText.TranslateLiteral(locale, cs);
+            LocalizeTree(obj, locale);
+        }
+    }
+
+    private static void LocalizeLanguageCombo(ComboBox combo, string locale)
+    {
+        foreach (var entry in combo.Items.OfType<ComboBoxItem>())
+        {
+            var tag = entry.Tag?.ToString();
+            if (!string.IsNullOrWhiteSpace(tag)) entry.Content = UiText.Get(locale, tag!);
+        }
     }
 
     private void SyncUiToSettings()
     {
         RoiGrid.CommitEdit(DataGridEditingUnit.Cell, true);
         RoiGrid.CommitEdit(DataGridEditingUnit.Row, true);
-        _settings.OcrLanguages = string.IsNullOrWhiteSpace(OcrLanguagesBox.Text) ? "eng" : OcrLanguagesBox.Text.Trim();
+        _settings.UiLanguage = UiText.NormalizeLocale((UiLanguageCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString());
+        _settings.SourceLanguage = TranslationLanguages.Normalize((SourceLanguageCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString());
+        _settings.OcrLanguageFollowsSource = OcrLanguageFollowsSourceCheck.IsChecked == true;
+        _settings.OcrLanguages = string.IsNullOrWhiteSpace(OcrLanguagesBox.Text) ? "eng+kor" : OcrLanguagesBox.Text.Trim();
+        if (_settings.OcrLanguageFollowsSource && _settings.SourceLanguage != "auto")
+        {
+            _settings.OcrLanguages = TranslationLanguages.ToTesseract(_settings.SourceLanguage);
+            OcrLanguagesBox.Text = _settings.OcrLanguages;
+        }
         _settings.OcrMode = (OcrModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Balanced";
-        _settings.TargetLanguage = (TargetLanguageCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "ko";
+        _settings.CaptureMode = (CaptureModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "BackgroundFirst";
+        _settings.TargetLanguage = TranslationLanguages.Normalize((TargetLanguageCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), false);
+        _settings.SmartMixedText = SmartMixedTextCheck.IsChecked == true;
+        RefreshOcrLanguageButton();
         if (int.TryParse(PollIntervalBox.Text, out var poll)) _settings.PollIntervalMs = Math.Clamp(poll, 100, 2000);
         if (double.TryParse(ChangeThresholdBox.Text, out var threshold)) _settings.ChangeThreshold = Math.Clamp(threshold, 0.005, 0.25);
         if (int.TryParse(WebTimeoutBox.Text, out var webTimeout)) _settings.WebTranslationTimeoutMs = Math.Clamp(webTimeout, 3000, 25000);
@@ -131,7 +209,7 @@ public partial class MainWindow : Window
         _settings.WebProviders.Google = GoogleWebEnabled.IsChecked == true;
         _settings.WebProviders.DeepL = DeepLWebEnabled.IsChecked == true;
         _settings.AllowClipboardFallback = ClipboardFallbackCheck.IsChecked == true;
-        _settings.TranslationStrategy = (TranslationStrategyCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "HybridBalanced";
+        _settings.TranslationStrategy = (TranslationStrategyCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "WebOnly";
         _settings.PreferredProvider = (PreferredProviderCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Auto";
 
         SyncBudget(_settings.ApiProviders.Papago, PapagoApiEnabled, PapagoDailyLimitBox, PapagoMonthlyLimitBox);
@@ -165,6 +243,47 @@ public partial class MainWindow : Window
     }
 
     private bool StrategyUsesWeb() => !_settings.TranslationStrategy.Equals("ApiOnly", StringComparison.OrdinalIgnoreCase);
+
+    private async Task EnsureWebViewReadyAsync(WebView2 view)
+    {
+        if (view.CoreWebView2 is not null) return;
+        var previousMainTab = MainTabs.SelectedIndex;
+        var previousSiteTab = TranslatorSiteTabs.SelectedIndex;
+        try
+        {
+            MainTabs.SelectedIndex = 1;
+            TranslatorSiteTabs.SelectedIndex = view == PapagoWebView ? 0 : view == GoogleWebView ? 1 : 2;
+            UpdateLayout();
+            await _webRuntime.InitializeAsync([view]);
+            _webInitialized = PapagoWebView.CoreWebView2 is not null || GoogleWebView.CoreWebView2 is not null || DeepLWebView.CoreWebView2 is not null;
+        }
+        finally
+        {
+            TranslatorSiteTabs.SelectedIndex = previousSiteTab < 0 ? 0 : previousSiteTab;
+            MainTabs.SelectedIndex = previousMainTab < 0 ? 0 : previousMainTab;
+        }
+    }
+
+    private async Task WarmUpAfterStartAsync(ModelManager models)
+    {
+        try
+        {
+            await Task.Delay(700);
+            var progress = new Progress<string>(message => Dispatcher.Invoke(() => AddLog("WARMUP  " + message)));
+            await models.EnsureLanguagesAsync(BuildRequiredOcrLanguagesForSession(), progress);
+            if (StrategyUsesWeb())
+            {
+                if (_settings.WebProviders.Papago) await Dispatcher.InvokeAsync(() => EnsureWebViewReadyAsync(PapagoWebView)).Task.Unwrap();
+                if (_settings.WebProviders.Google) await Dispatcher.InvokeAsync(() => EnsureWebViewReadyAsync(GoogleWebView)).Task.Unwrap();
+                if (_settings.WebProviders.DeepL) await Dispatcher.InvokeAsync(() => EnsureWebViewReadyAsync(DeepLWebView)).Task.Unwrap();
+            }
+            Dispatcher.Invoke(() => AddLog("WARMUP  백그라운드 준비 완료"));
+        }
+        catch (Exception ex)
+        {
+            Dispatcher.Invoke(() => AddLog("WARMUP  " + ex.Message));
+        }
+    }
 
     private async Task InitializeWebTranslatorsAsync(bool navigateHome)
     {
@@ -273,25 +392,17 @@ public partial class MainWindow : Window
             SaveSecretsFromUi();
             SaveAll();
             SetRunningUi(true);
+            if (AdvancedPanel.Visibility == Visibility.Visible) CloseAdvancedSettings();
 
-            if (StrategyUsesWeb() && !_webInitialized &&
-                (_settings.WebProviders.Papago || _settings.WebProviders.Google || _settings.WebProviders.DeepL))
-            {
-                StatusText.Text = "번역 웹 사이트 초기화 중...";
-                await InitializeWebTranslatorsAsync(navigateHome: false);
-            }
-
+            // Keep Start responsive: WebView2 and OCR models are initialized lazily on first use.
+            // Optional warm-up begins only after monitoring is already running.
             var providers = CreateTranslationProviders().Where(x => x.IsConfigured).ToArray();
             if (providers.Length == 0)
                 throw new InvalidOperationException("활성화되고 설정이 완료된 번역 Provider가 없습니다. Web 또는 API/로컬 설정을 확인하세요.");
 
-            StatusText.Text = "OCR 모델 확인 중...";
             var models = new ModelManager();
-            var progress = new Progress<string>(s => { StatusText.Text = s; AddLog("MODEL   " + s); });
-            await models.EnsureLanguagesAsync(BuildRequiredOcrLanguagesForSession(), progress);
-
             _ocr = new TesseractOcrService(models, _settings.OcrMode);
-            _translationCache = new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v3.json");
+            _translationCache = new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v8.json");
             var translator = new MultiTranslator(providers, _settings.PreferredProvider, _settings.TranslationStrategy, _settings.ProviderWindowMs, _translationCache);
             translator.Diagnostic += message => Dispatcher.Invoke(() => AddLog("TRANS   " + message));
 
@@ -299,14 +410,15 @@ public partial class MainWindow : Window
             _overlay.Show();
             EnsureLiveWindow(showEvenWhenDisabled: false);
 
-            _monitor = new MonitorEngine(_targetHwnd, _settings, new WindowCaptureService(), _ocr, translator);
+            _monitor = new MonitorEngine(_targetHwnd, _settings, new WindowCaptureService(_settings.CaptureMode), _ocr, translator);
             _monitor.Status += msg => Dispatcher.Invoke(() => { StatusText.Text = msg; AddLog("STATUS  " + msg); });
             _monitor.TranslationPending += pending => Dispatcher.Invoke(() => OnTranslationPending(pending));
             _monitor.TranslationCleared += roiId => Dispatcher.Invoke(() => OnTranslationCleared(roiId));
             _monitor.TranslationUpdated += update => Dispatcher.Invoke(() => OnTranslation(update));
             _monitor.Start();
+            if (_settings.BackgroundWarmup) _ = WarmUpAfterStartAsync(models);
             StatusText.Text = "실시간 번역 실행 중";
-            AddLog($"START   ROI 감시 + {_settings.TranslationStrategy} 번역 시작 / Provider={string.Join(", ", providers.Select(x => x.Name))}");
+            AddLog($"START   ROI 감시 + {_settings.TranslationStrategy} / {TranslationLanguages.DisplayName(_settings.SourceLanguage)} → {TranslationLanguages.DisplayName(_settings.TargetLanguage)} / OCR={_settings.OcrLanguages} / 혼합처리={(_settings.SmartMixedText ? "ON" : "OFF")} / Provider={string.Join(", ", providers.Select(x => x.Name))}");
         }
         catch (Exception ex)
         {
@@ -319,11 +431,23 @@ public partial class MainWindow : Window
     private string BuildRequiredOcrLanguagesForSession()
     {
         var languages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var lang in ModelManager.ParseLanguages(_settings.OcrLanguages)) languages.Add(lang);
+        var defaultSource = TranslationLanguages.Normalize(_settings.SourceLanguage);
+        var defaultOcr = _settings.OcrLanguageFollowsSource && defaultSource != "auto"
+            ? TranslationLanguages.ToTesseract(defaultSource)
+            : _settings.OcrLanguages;
+        foreach (var lang in ModelManager.ParseLanguages(defaultOcr)) languages.Add(lang);
         foreach (var roi in _settings.Rois)
         {
             if (!string.IsNullOrWhiteSpace(roi.OcrLanguagesOverride))
+            {
                 foreach (var lang in ModelManager.ParseLanguages(roi.OcrLanguagesOverride!)) languages.Add(lang);
+                continue;
+            }
+            if (_settings.OcrLanguageFollowsSource && !string.IsNullOrWhiteSpace(roi.SourceLanguageOverride))
+            {
+                var roiSource = TranslationLanguages.Normalize(roi.SourceLanguageOverride);
+                if (roiSource != "auto") languages.Add(TranslationLanguages.ToTesseract(roiSource));
+            }
         }
 
         // Web extraction has a rendered-screen OCR fallback. Download its target-language model
@@ -353,19 +477,19 @@ public partial class MainWindow : Window
             yield return new WebViewTranslationProvider(
                 "Papago Web", PapagoWebView, WebTranslationScripts.PapagoUrl,
                 WebTranslationScripts.PapagoResult, true, _settings.WebTranslationTimeoutMs,
-                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message));
+                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message), () => EnsureWebViewReadyAsync(PapagoWebView));
 
         if (_settings.WebProviders.Google)
             yield return new WebViewTranslationProvider(
                 "Google Web", GoogleWebView, WebTranslationScripts.GoogleUrl,
                 WebTranslationScripts.GoogleResult, true, _settings.WebTranslationTimeoutMs,
-                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message));
+                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message), () => EnsureWebViewReadyAsync(GoogleWebView));
 
         if (_settings.WebProviders.DeepL)
             yield return new WebViewTranslationProvider(
                 "DeepL Web", DeepLWebView, WebTranslationScripts.DeepLUrl,
                 WebTranslationScripts.DeepLResult, true, _settings.WebTranslationTimeoutMs,
-                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message));
+                _settings.AllowClipboardFallback, message => AddLog("WEBREAD " + message), () => EnsureWebViewReadyAsync(DeepLWebView));
     }
 
     private IEnumerable<ITranslationProvider> CreateApiProviders()
@@ -401,7 +525,7 @@ public partial class MainWindow : Window
             var target = _settings.TargetLanguage;
             var visualOcrLanguage = WebVisualOcrFallback.MapTesseractLanguage(target);
             await new ModelManager().EnsureLanguagesAsync(visualOcrLanguage);
-            const string testText = "Hello. This is a RoiLingo translation test.";
+            var testText = GetTranslationTestText(_settings.SourceLanguage);
             var lines = new List<string>();
             foreach (var provider in providers)
             {
@@ -409,7 +533,7 @@ public partial class MainWindow : Window
                 {
                     using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(_settings.WebTranslationTimeoutMs + 2500));
                     var sw = Stopwatch.StartNew();
-                    var translated = await provider.TranslateAsync(testText, target, timeout.Token);
+                    var translated = await provider.TranslateAsync(testText, _settings.SourceLanguage, target, timeout.Token);
                     sw.Stop();
                     lines.Add($"{provider.Name}: {translated} ({sw.ElapsedMilliseconds}ms)");
                 }
@@ -430,6 +554,18 @@ public partial class MainWindow : Window
             MessageBox.Show(ex.Message, "번역 테스트 실패", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
+
+    private static string GetTranslationTestText(string sourceLanguage) => TranslationLanguages.Normalize(sourceLanguage) switch
+    {
+        "ko" => "안녕하세요. 이것은 RoiLingo 번역 테스트입니다.",
+        "ja" => "こんにちは。これはRoiLingoの翻訳テストです。",
+        "zh-CN" or "zh-TW" => "你好，这是 RoiLingo 翻译测试。",
+        "es" => "Hola. Esta es una prueba de traducción de RoiLingo.",
+        "fr" => "Bonjour. Ceci est un test de traduction RoiLingo.",
+        "de" => "Hallo. Dies ist ein RoiLingo-Übersetzungstest.",
+        "ru" => "Здравствуйте. Это тест перевода RoiLingo.",
+        _ => "Hello. This is a RoiLingo translation test."
+    };
 
     private void SaveApiSettingsButton_Click(object sender, RoutedEventArgs e)
     {
@@ -462,7 +598,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            const string testText = "Hello. This is a RoiLingo API translation test.";
+            var testText = GetTranslationTestText(_settings.SourceLanguage);
             var lines = new List<string>();
             StatusText.Text = "API/로컬 연결 테스트 중...";
             foreach (var provider in providers)
@@ -471,7 +607,7 @@ public partial class MainWindow : Window
                 {
                     using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(_settings.ApiTimeoutMs + 1500));
                     var sw = Stopwatch.StartNew();
-                    var result = await provider.TranslateAsync(testText, _settings.TargetLanguage, timeout.Token);
+                    var result = await provider.TranslateAsync(testText, _settings.SourceLanguage, _settings.TargetLanguage, timeout.Token);
                     sw.Stop();
                     lines.Add($"{provider.Name}: {result} ({sw.ElapsedMilliseconds}ms)");
                 }
@@ -527,6 +663,94 @@ public partial class MainWindow : Window
         ApiUsageText.Text = "로컬 사용량: " + string.Join(" | ", snapshot.OrderBy(x => x.Key).Select(x => $"{x.Key} {x.Value.DailyRequests:N0}회/{x.Value.MonthlyCharacters:N0}자"));
     }
 
+    private void OcrLanguagePickerButton_Click(object sender, RoutedEventArgs e)
+    {
+        SyncUiToSettings();
+        var picker = new OcrLanguagePickerWindow(_settings.OcrLanguages) { Owner = this };
+        if (picker.ShowDialog() != true) return;
+
+        _settings.OcrLanguages = picker.SelectedLanguages;
+        _settings.OcrLanguageFollowsSource = false;
+        OcrLanguageFollowsSourceCheck.IsChecked = false;
+        OcrLanguagesBox.Text = _settings.OcrLanguages;
+        RefreshOcrLanguageButton();
+        SaveAll();
+        StatusText.Text = $"OCR 언어: {FormatOcrLanguages(_settings.OcrLanguages)}";
+    }
+
+    private void RefreshOcrLanguageButton()
+    {
+        if (OcrLanguagePickerButton is null) return;
+        OcrLanguagePickerButton.Content = "OCR: " + FormatOcrLanguages(_settings.OcrLanguages);
+        OcrLanguagePickerButton.ToolTip = $"동시 OCR 언어: {_settings.OcrLanguages}. 클릭하여 여러 언어 선택";
+    }
+
+    private static string FormatOcrLanguages(string languages)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["eng"] = "영", ["kor"] = "한", ["jpn"] = "일", ["chi_sim"] = "중간", ["chi_tra"] = "중번",
+            ["spa"] = "서", ["fra"] = "불", ["deu"] = "독", ["rus"] = "러", ["por"] = "포",
+            ["ita"] = "이", ["vie"] = "베", ["tha"] = "태", ["ind"] = "인니", ["hin"] = "힌", ["ara"] = "아"
+        };
+        var values = ModelManager.ParseLanguages(string.IsNullOrWhiteSpace(languages) ? "eng+kor" : languages)
+            .Select(x => map.TryGetValue(x, out var label) ? label : x)
+            .ToArray();
+        return values.Length <= 4 ? string.Join('+', values) : $"{string.Join("+", values.Take(3))}+{values.Length - 3}";
+    }
+
+    private void AdvancedSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (AdvancedPanel.Visibility == Visibility.Visible)
+        {
+            CloseAdvancedSettings();
+            return;
+        }
+
+        AdvancedPanel.Visibility = Visibility.Visible;
+        AdvancedSettingsButton.Content = "설정 닫기";
+        MinWidth = AdvancedWindowMinWidth;
+        MinHeight = AdvancedWindowMinHeight;
+
+        var work = SystemParameters.WorkArea;
+        Width = Math.Min(Math.Max(Width, 1280), Math.Max(AdvancedWindowMinWidth, work.Width - 40));
+        Height = Math.Min(Math.Max(Height, 840), Math.Max(AdvancedWindowMinHeight, work.Height - 40));
+        ClampWindowToWorkArea(work);
+        MainTabs.Focus();
+    }
+
+    private void CloseAdvancedSettingsButton_Click(object sender, RoutedEventArgs e) => CloseAdvancedSettings();
+
+    private void CloseAdvancedSettings()
+    {
+        try
+        {
+            SyncUiToSettings();
+            SaveSecretsFromUi();
+            SaveAll();
+        }
+        catch (Exception ex)
+        {
+            AddLog("SETTINGS 저장 실패: " + ex.Message);
+        }
+
+        AdvancedPanel.Visibility = Visibility.Collapsed;
+        AdvancedSettingsButton.Content = "설정";
+        MinWidth = 560;
+        MinHeight = 135;
+        Width = CompactWindowWidth;
+        Height = CompactWindowHeight;
+        ClampWindowToWorkArea(SystemParameters.WorkArea);
+    }
+
+    private void ClampWindowToWorkArea(Rect work)
+    {
+        if (Left < work.Left) Left = work.Left;
+        if (Top < work.Top) Top = work.Top;
+        if (Left + Width > work.Right) Left = Math.Max(work.Left, work.Right - Width);
+        if (Top + Height > work.Bottom) Top = Math.Max(work.Top, work.Bottom - Height);
+    }
+
     private void PreviewLiveWindowButton_Click(object sender, RoutedEventArgs e)
     {
         SyncUiToSettings();
@@ -547,6 +771,7 @@ public partial class MainWindow : Window
         var enable = !_overlay.EditMode;
         _overlay.SetEditMode(enable);
         OverlayEditModeButton.Content = enable ? "게임 오버레이 편집 완료" : "게임 오버레이 직접 편집";
+        QuickOverlayEditButton.Content = enable ? "오버레이 편집 완료" : "오버레이 편집";
         StatusText.Text = enable
             ? "오버레이 편집 모드: 번역 박스를 드래그해 이동하고, 우하단 핸들/휠로 크기·투명도를 조절하세요."
             : "오버레이 편집 완료. 다시 클릭 통과 모드로 전환했습니다.";
@@ -701,6 +926,7 @@ public partial class MainWindow : Window
         _ocr = null;
         SetRunningUi(false);
         OverlayEditModeButton.Content = "게임 오버레이 직접 편집";
+        QuickOverlayEditButton.Content = "오버레이 편집";
         StatusText.Text = "중지됨";
         AddLog("STOP    실시간 감시 중지");
     }
@@ -745,9 +971,14 @@ public partial class MainWindow : Window
     {
         StartButton.IsEnabled = !running;
         StopButton.IsEnabled = running;
+        QuickOverlayEditButton.IsEnabled = running;
         PickWindowButton.IsEnabled = !running;
         EditRoiButton.IsEnabled = !running;
         RoiGrid.IsReadOnly = running;
+        SourceLanguageCombo.IsEnabled = !running;
+        OcrLanguagePickerButton.IsEnabled = !running;
+        TargetLanguageCombo.IsEnabled = !running;
+        TranslationStrategyCombo.IsEnabled = !running;
     }
 
     private void AddLog(string message)

@@ -32,7 +32,7 @@ public sealed class MonitorEngine : IAsyncDisposable
     }
 
     private sealed record TranslationWorkItem(
-        long Revision, RoiDefinition Roi, string Text, float Confidence, string TargetLanguage);
+        long Revision, RoiDefinition Roi, string OriginalText, string TranslationInput, float Confidence, string SourceLanguage, string TargetLanguage);
 
     public event Action<RoiTranslationUpdate>? TranslationUpdated;
     public event Action<RoiTranslationPending>? TranslationPending;
@@ -110,14 +110,14 @@ public sealed class MonitorEngine : IAsyncDisposable
                 using var frame = _capture.CaptureClient(_hwnd);
                 if (frame is null)
                 {
-                    Status?.Invoke("대상 창을 캡처할 수 없습니다. 창이 최소화되었는지 확인하세요.");
+                    Status?.Invoke("대상 창 캡처 대기 중: 가려진/비활성 창은 백그라운드 캡처를 시도합니다. 최소화 또는 GPU 보호 창은 캡처가 제한될 수 있습니다.");
                 }
                 else
                 {
                     // OCR is intentionally kept in the capture loop, but translation is NOT awaited here.
                     // Each ROI owns one latest-wins translation task, so a slow web translator cannot block
                     // capture/OCR for the remaining ROIs and stale text cannot build an unbounded queue.
-                    foreach (var roi in _settings.Rois.Where(r => r.Enabled).ToArray())
+                    foreach (var roi in _settings.Rois.Where(r => r.Enabled).OrderByDescending(r => r.EventMode).ToArray())
                     {
                         ct.ThrowIfCancellationRequested();
                         await ProcessRoiAsync(frame, roi, ct);
@@ -167,8 +167,15 @@ public sealed class MonitorEngine : IAsyncDisposable
         state.DirtySince = DateTimeOffset.MinValue;
         state.LastOcrAt = now;
 
-        var languages = string.IsNullOrWhiteSpace(roi.OcrLanguagesOverride) ? _settings.OcrLanguages : roi.OcrLanguagesOverride!;
-        var result = await _ocr.ReadAsync(crop, languages, monitorToken);
+        var sourceLanguage = string.IsNullOrWhiteSpace(roi.SourceLanguageOverride)
+            ? TranslationLanguages.Normalize(_settings.SourceLanguage)
+            : TranslationLanguages.Normalize(roi.SourceLanguageOverride);
+        var languages = !string.IsNullOrWhiteSpace(roi.OcrLanguagesOverride)
+            ? roi.OcrLanguagesOverride!
+            : _settings.OcrLanguageFollowsSource && sourceLanguage != "auto"
+                ? TranslationLanguages.ToTesseract(sourceLanguage)
+                : _settings.OcrLanguages;
+        var result = await _ocr.ReadAsync(crop, languages, monitorToken, fastPath: roi.EventMode);
 
         // A stable visual change that no longer contains readable text means the previous
         // on-screen sentence disappeared. Clear it instead of leaving a stale translation forever.
@@ -180,6 +187,12 @@ public sealed class MonitorEngine : IAsyncDisposable
         }
 
         var text = TesseractOcrService.Normalize(result.Text);
+        if (LooksLikeRoiLingoSelfCapture(text))
+        {
+            if (HasLastText(state)) ClearRoi(roi, state);
+            Status?.Invoke($"{roi.Name}: RoiLingo 자체 화면이 캡처되어 OCR 결과를 버렸습니다. 오버레이/설정 창은 캡처 제외 처리되며, 필요하면 대상 창과 RoiLingo 창이 겹치지 않는지 확인하세요.");
+            return;
+        }
         if (string.IsNullOrWhiteSpace(text))
         {
             if (wasSettledVisualChange && HasLastText(state))
@@ -193,24 +206,47 @@ public sealed class MonitorEngine : IAsyncDisposable
                 return;
         }
 
-        var target = string.IsNullOrWhiteSpace(roi.TargetLanguageOverride) ? _settings.TargetLanguage : roi.TargetLanguageOverride!;
-        StartLatestTranslation(roi, state, text, result.Confidence, target, monitorToken);
+        var target = string.IsNullOrWhiteSpace(roi.TargetLanguageOverride)
+            ? TranslationLanguages.Normalize(_settings.TargetLanguage, false)
+            : TranslationLanguages.Normalize(roi.TargetLanguageOverride, false);
+
+        var prepared = MixedLanguageTextProcessor.Prepare(text, target, _settings.SmartMixedText);
+        if (prepared.SkipTranslation)
+        {
+            lock (state.Sync)
+            {
+                state.LastText = text;
+                state.Revision++;
+                state.Pending = null;
+            }
+            TranslationCleared?.Invoke(roi.Id);
+            if (prepared.Reason == "already-target-language")
+                Status?.Invoke($"{roi.Name}: 이미 {TranslationLanguages.DisplayName(target)} 문장이라 번역을 생략했습니다.");
+            return;
+        }
+
+        if (prepared.MixedTargetAndForeign && !string.Equals(prepared.TranslationInput, text, StringComparison.Ordinal))
+            Status?.Invoke($"{roi.Name}: 혼합 언어 감지 - 이미 {TranslationLanguages.DisplayName(target)}인 부분은 제외하고 나머지만 번역합니다.");
+
+        StartLatestTranslation(roi, state, text, prepared.TranslationInput, result.Confidence, sourceLanguage, target, monitorToken);
     }
 
     private void StartLatestTranslation(
         RoiDefinition roi,
         RoiState state,
-        string text,
+        string originalText,
+        string translationInput,
         float confidence,
+        string sourceLanguage,
         string targetLanguage,
         CancellationToken monitorToken)
     {
         long revision;
         lock (state.Sync)
         {
-            state.LastText = text;
+            state.LastText = originalText;
             revision = ++state.Revision;
-            state.Pending = new TranslationWorkItem(revision, roi, text, confidence, targetLanguage);
+            state.Pending = new TranslationWorkItem(revision, roi, originalText, translationInput, confidence, sourceLanguage, targetLanguage);
 
             // Important: do not cancel a WebView translation merely because OCR produced a newer
             // sentence. Cancelling during navigation/input was the reason the translator page could
@@ -228,7 +264,7 @@ public sealed class MonitorEngine : IAsyncDisposable
         // Hide the previous sentence immediately; the pending indicator is not written into the
         // game overlay itself, so stale text disappears while the newest sentence is translated.
         TranslationPending?.Invoke(new RoiTranslationPending(
-            roi.Id, roi.Name, text, confidence, DateTimeOffset.Now));
+            roi.Id, roi.Name, originalText, confidence, DateTimeOffset.Now));
     }
 
     private async Task RunTranslationWorkerAsync(RoiState state, CancellationToken ct)
@@ -249,7 +285,7 @@ public sealed class MonitorEngine : IAsyncDisposable
 
             try
             {
-                var bundle = await _translator.TranslateAsync(work.Text, work.TargetLanguage, ct);
+                var bundle = await _translator.TranslateAsync(work.TranslationInput, work.SourceLanguage, work.TargetLanguage, ct);
                 ct.ThrowIfCancellationRequested();
 
                 var failed = bundle.Results.Count == 0 ||
@@ -263,7 +299,7 @@ public sealed class MonitorEngine : IAsyncDisposable
                     // Never show/history the old result, but also never interrupt the web input
                     // half-way through. The worker simply moves on to the newest pending item.
                     if (work.Revision == state.Revision &&
-                        string.Equals(state.LastText, work.Text, StringComparison.Ordinal))
+                        string.Equals(state.LastText, work.OriginalText, StringComparison.Ordinal))
                     {
                         if (failed)
                             state.LastText = string.Empty; // allow retry on a still-visible sentence
@@ -275,7 +311,7 @@ public sealed class MonitorEngine : IAsyncDisposable
                 if (publish)
                 {
                     TranslationUpdated?.Invoke(new RoiTranslationUpdate(
-                        work.Roi.Id, work.Roi.Name, work.Text, bundle.SelectedText, bundle.SelectedProvider,
+                        work.Roi.Id, work.Roi.Name, work.OriginalText, bundle.SelectedText, bundle.SelectedProvider,
                         work.Confidence, bundle.AgreementScore, DateTimeOffset.Now, bundle.Results));
                 }
                 else if (failed && work.Revision == state.Revision)
@@ -329,6 +365,18 @@ public sealed class MonitorEngine : IAsyncDisposable
     private static bool HasLastText(RoiState state)
     {
         lock (state.Sync) return !string.IsNullOrWhiteSpace(state.LastText);
+    }
+
+    private static bool LooksLikeRoiLingoSelfCapture(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var lower = text.ToLowerInvariant();
+        string[] markers =
+        [
+            "roilingo", "webread", "교차일치", "translation-cache", "sha-256", "readme", "실행 로그",
+            "papago web", "google web", "deepl web", "ocr=", "ocr ", "번역 가져오는 중"
+        ];
+        return markers.Count(marker => lower.Contains(marker, StringComparison.OrdinalIgnoreCase)) >= 2;
     }
 
     private static bool LooksLikeText(string text)

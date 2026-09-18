@@ -12,7 +12,7 @@ public interface ITranslationProvider
     string Name { get; }
     TranslationProviderKind Kind { get; }
     bool IsConfigured { get; }
-    Task<string> TranslateAsync(string text, string targetLanguage, CancellationToken cancellationToken);
+    Task<string> TranslateAsync(string text, string sourceLanguage, string targetLanguage, CancellationToken cancellationToken);
 }
 
 public interface IQuotaAwareTranslationProvider

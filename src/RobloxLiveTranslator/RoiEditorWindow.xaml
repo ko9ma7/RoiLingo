@@ -3,17 +3,21 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         WindowStyle="None" AllowsTransparency="True" Background="#18000000"
         ShowInTaskbar="False" Topmost="True" ResizeMode="NoResize"
-        KeyDown="Window_KeyDown"
-        MouseLeftButtonDown="Window_MouseLeftButtonDown"
-        MouseMove="Window_MouseMove"
-        MouseLeftButtonUp="Window_MouseLeftButtonUp"
-        MouseRightButtonDown="Window_MouseRightButtonDown">
+        KeyDown="Window_KeyDown">
     <Grid>
-        <Canvas x:Name="RoiCanvas"/>
-        <Border VerticalAlignment="Top" HorizontalAlignment="Center" Margin="8" Padding="12,7"
-                Background="#DD111111" CornerRadius="8" IsHitTestVisible="False">
-            <TextBlock Foreground="White" FontSize="14"
-                       Text="드래그: ROI 추가   |   우클릭: 마지막 ROI 삭제   |   Enter: 저장   |   Esc: 취소"/>
+        <Canvas x:Name="RoiCanvas" Background="Transparent"
+                MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
+                MouseMove="Canvas_MouseMove"
+                MouseLeftButtonUp="Canvas_MouseLeftButtonUp"/>
+        <Border VerticalAlignment="Top" HorizontalAlignment="Center" Margin="8" Padding="10,6"
+                Background="#E6111111" CornerRadius="8">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Foreground="White" FontSize="13" VerticalAlignment="Center"
+                           Text="빈 곳 드래그=추가 · 박스 드래그=이동 · 파란 핸들=가로/세로 크기 변경"/>
+                <Button Content="선택 삭제" Click="DeleteSelected_Click" Margin="12,0,3,0" Padding="8,3"/>
+                <Button Content="저장" Click="Save_Click" Margin="3,0" Padding="8,3"/>
+                <Button Content="취소" Click="Cancel_Click" Margin="3,0" Padding="8,3"/>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

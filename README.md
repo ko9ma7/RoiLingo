@@ -1,269 +1,149 @@
-# RoiLingo
+# RoiLingo 2.0.0
 
-RoiLingo is a Windows WPF live OCR translator for games and other applications. It watches user-defined ROI regions, runs OCR only when a region changes, translates newly detected text, and shows the result in a click-through overlay and/or a movable live translation window.
+RoiLingo is a compact Windows WPF utility for **target-window ROI OCR → translation → game overlay**.
+It is designed to stay small during normal use while keeping OCR, Web/API/local translation, history and diagnostics under Settings.
 
-Version **1.6.1** supports two translation paths at the same time:
-
-- **WebView2 web translators**: Papago, Google Translate, DeepL — no API key required.
-- **API/local translators**: Papago Text Translation API, Google Cloud Translation Basic API, DeepL API, and LibreTranslate/Argos-compatible servers.
-
-The default **Hybrid Balanced** strategy calls one API/local provider and one web provider per new OCR text, rotating providers instead of spending every paid API quota on every event. Repeated text is served from the local translation cache.
-
-## Main features
-
-- Click a target game/window and track it by HWND.
-- Draw multiple normalized ROI rectangles over the target window.
-- Low-CPU visual change detection before OCR.
-- Open-source **Tesseract 5** OCR with selectable language packs.
-- OCR modes: Fast / Balanced / Accurate multi-pass page segmentation.
-- Embedded WebView2 tabs for Papago, Google Translate, DeepL.
-- Web result extraction fallbacks:
-  - known selectors,
-  - source/target **layout-anchored** result extraction,
-  - rendered visible DOM snapshot with UI-chrome rejection,
-  - generic DOM scoring,
-  - whole-page visible body text,
-  - Chromium accessibility tree,
-  - optional target-side Copy-button/clipboard fallback.
-- Official API integrations:
-  - Papago Text Translation API
-  - Google Cloud Translation Basic v2
-  - DeepL API Free/Pro
-- Open-source local translation through **LibreTranslate**, powered by Argos Translate.
-- Hybrid provider rotation and local daily/monthly budget limits.
-- DeepL `/v2/usage` actual usage lookup during API test.
-- DPAPI-encrypted API secrets tied to the current Windows user.
-- Translation cache with invalid web-UI/failure result rejection.
-- **Coalescing latest-per-ROI**: a running WebView translation is allowed to finish, stale results are discarded, and only the newest pending OCR sentence is retained. This avoids cancelling the browser while it is still navigating/inserting text.
-- The game overlay clears the previous sentence when a new sentence is confirmed or when the ROI becomes empty.
-- Click-through game overlay with per-ROI position offset, width, background opacity, font size, source/meta visibility.
-- Separate movable/resizable always-on-top live translation window with saved position/size/font.
-- Translation history, provider comparison, CSV export, daily runtime logs.
-- Windows GitHub Actions build and GitHub Release packaging.
-- One-click GitHub publishing entry point: `github-bootstrap.cmd`.
-
-## Runtime architecture
+## Quick start
 
 ```text
-Target window
-    |
-    v
-one capture frame
-    |
-    +--> ROI change signature -- unchanged --> skip
-    |
-    +--> changed + settled
-            |
-            v
-       Tesseract OCR
-            |
-            v
-       text dedupe
-            |
-   per-ROI coalescing worker
- (keep only newest pending text)
-            |
-            +---------------- Hybrid scheduler ----------------+
-            |                                                  |
-            v                                                  v
-     API / local rotation                               WebView rotation
- Papago / Google / DeepL / Libre                  Papago / Google / DeepL
-            |                                                  |
-            +------------------- results ----------------------+
-                                |
-                     preferred result + agreement
-                                |
-                   overlay / live window / history
+[대상/Target] → [ROI] → [시작/Start]
 ```
 
+Default translation setup:
 
-## v1.6 reliability changes
+```text
+Source: Auto detect
+OCR candidates: English + Korean (eng+kor)
+Target: Korean
+Mode: Free Web cross-check (Papago + Google + DeepL)
+```
 
-- Web translators now verify that the OCR source text actually appeared in the source editor. If a deep-link URL is ignored by the site, RoiLingo injects the text into the visible source editor and dispatches real `input`/`change` events before waiting for the result.
-- Game overlay boxes can be edited **directly on top of the target window** while translation is running: drag to move, drag the lower-right handle to resize, `Ctrl+mouse wheel` to change opacity, and `Shift+mouse wheel` to change font size. Click **게임 오버레이 직접 편집** again to restore click-through mode.
-- GitHub bootstrap now fetches an existing `origin/main` first. If the remote was created by an earlier RoiLingo bootstrap and has unrelated history, the current release snapshot is committed on top of the remote history instead of failing with `fetch first` or force-pushing.
+The compact UI can be switched between **한국어 / English / 日本語 / 简体中文** from the top toolbar.
 
-## Requirements
+## What changed in 2.0
+
+### Background / inactive window capture
+
+RoiLingo now uses a **background-first capture policy**. It first asks the selected HWND to render its client area with `PrintWindow`, so the capture does not depend on where the window is located on the desktop and can normally continue when another window covers it.
+
+If background capture fails, RoiLingo only uses screen-copy fallback while the selected target itself is the foreground window. This prevents a covered target from accidentally OCRing the app that is covering it.
+
+The capture mode can be changed under **Settings → General / ROI → Capture mode**:
+
+- `BackgroundFirst` — recommended default
+- `BackgroundOnly` — never use screen-copy fallback
+- `Auto` — background first, foreground screen fallback allowed
+
+Important limitation: some GPU-only/protected/minimized applications do not provide off-screen content to `PrintWindow`. RoiLingo treats that as a capture failure instead of OCRing unrelated screen pixels. Windows 10 1903+ exposes `GraphicsCaptureItem` for HWND capture; a future backend can plug into the same capture service without changing ROI/OCR/translation code.
+
+### ROI movement and editing
+
+ROI coordinates are stored as **normalized client coordinates (0..1)**, not absolute desktop coordinates. Moving the target window therefore does not invalidate ROI positions.
+
+The ROI editor now supports existing ROI editing:
+
+- drag empty space → add a new ROI
+- click and drag an existing ROI → move it
+- drag the blue bottom-right handle → resize width and height independently
+- Delete / Backspace or **선택 삭제** → delete only the selected ROI
+- Enter / **저장** → save
+
+You no longer need to delete an ROI and recreate it just to adjust its bounds.
+
+### Overlay resizing
+
+The game overlay now stores **width scale and height scale separately**.
+
+During overlay edit mode:
+
+- drag panel → move
+- drag blue corner handle horizontally → width only
+- drag blue corner handle vertically → height only
+- mouse wheel → width
+- Shift + wheel → height
+- Ctrl + wheel → opacity
+- Alt + wheel → font size
+
+The detailed overlay settings window also exposes width and height independently.
+
+### Faster startup and faster event reaction
+
+`Start` no longer waits for all WebView2 tabs and every OCR model to initialize first.
+
+Pipeline in 2.0:
+
+```text
+Start
+  → monitor begins immediately
+  → OCR models initialize lazily on first use
+  → WebView2 initializes lazily on first Web request
+  → optional background warm-up runs after monitoring already started
+```
+
+Default timing was tightened for live events:
+
+- ROI polling: 150 ms
+- visual settle time: 100 ms
+- translation provider window: 2.5 s
+- EventMode ROIs are checked first and use a one-pass fast OCR path
+
+Translation still uses a latest-wins queue per ROI, so stale messages do not build an unlimited backlog.
+
+## Translation modes
+
+| Mode | Behavior |
+| --- | --- |
+| **Free · 3 Web translators** | Papago / Google / DeepL WebView cross-check, no API key |
+| **API/local first · Web verify** | One API/local provider + one Web verifier |
+| **API/local only** | More deterministic unattended mode |
+| **All providers cross-check** | All configured providers, highest quota use |
+
+Supported API/local providers:
+
+- NAVER Cloud Papago Text Translation
+- Google Cloud Translation Basic v2
+- DeepL API
+- LibreTranslate-compatible endpoint / Argos-based local setups
+
+API secrets are stored with Windows DPAPI for the current user and are not written to `settings.json` or Git.
+
+## OCR and multilingual text
+
+Translation language and OCR language are different concepts.
+
+- **Source** can be `Auto detect`.
+- **OCR languages** are candidate Tesseract models such as `eng+kor+jpn`.
+- **Target** is the desired translation language.
+
+For a bilingual ROI such as:
+
+```text
+Any good ideas? 좋은 생각 있어?
+```
+
+`eng+kor` OCR is recommended. Smart mixed-language processing can avoid re-translating text that is already in the target language.
+
+## Build / verify
+
+Requirements:
 
 - Windows 10/11 x64
-- .NET SDK 8 or newer when building from source
-- Microsoft Edge WebView2 Runtime when using web translation
-- Internet connection for web and cloud API providers
-- Optional Docker Desktop for local LibreTranslate
+- .NET SDK 8+
+- Microsoft Edge WebView2 Runtime for Web translation mode
 
-## Build
-
-Open `RobloxLiveTranslator.sln` in Visual Studio 2022 with the **.NET desktop development** workload, or run:
+Verify:
 
 ```bat
 scripts\verify.cmd
 ```
 
-Manual:
-
-```powershell
-dotnet restore RobloxLiveTranslator.sln
-dotnet build RobloxLiveTranslator.sln -c Release -p:Platform=x64
-```
-
-Release package:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1
-```
-
-Output:
-
-```text
-publish\win-x64\RoiLingo.exe
-publish\RoiLingo-win-x64.zip
-```
-
-## First use
-
-1. Start RoiLingo.
-2. In **번역 웹 / 교차 검증**, enable the web translators you want. If a site shows a cookie/login/consent screen, handle it directly in that tab.
-3. In **번역 API / 로컬**, choose a strategy:
-   - `혼합 절약형`: recommended; one API/local + one web provider per text, rotating providers.
-   - `Web만`: browser translators only.
-   - `API/로컬만`: up to two API/local providers rotate.
-   - `최대 교차검증`: all enabled providers are called; this can consume paid quota quickly.
-4. Optionally enter API credentials. Click **API 설정/비밀키 저장**.
-5. Click **대상 창 선택**, then click Roblox or another target window.
-6. Click **ROI 편집** and draw the text regions.
-7. Select OCR languages and target language.
-8. Click **실시간 번역 시작**.
-9. Use **번역 기록** to inspect all results later.
-
-## Game overlay appearance
-
-The translucent click-through overlay drawn on top of the target game is independent from the separate movable live-translation window.
-
-Open **설정 / ROI → 게임 오버레이 위치/크기/투명도** and select an ROI. Each ROI stores:
-
-- horizontal / vertical offset from the automatic placement,
-- overlay width scale,
-- background opacity,
-- translation font size,
-- whether to show the OCR source,
-- whether to show provider/OCR/agreement metadata.
-
-Changes are applied immediately while monitoring is running and are saved to `settings.json`.
-
-The separate **실시간 번역 창 열기/다시 열기** button can recreate that window after it has been closed.
-
-## Web translation result extraction
-
-Translation websites regularly change their HTML. RoiLingo therefore does not depend on one CSS selector. Version 1.5.0 attempts, in order:
-
-1. site-specific known selectors,
-2. **painted text-node geometry**: score the actual text nodes rendered in the right translation pane instead of a parent element that may also contain language menus,
-3. **layout-anchored extraction**: locate the source sentence and score target-language text in the mirrored/right translation pane,
-4. visible rendered DOM snapshot scoring with translator-menu rejection,
-5. generic visible DOM heuristic,
-6. whole-page visible text scoring,
-7. Chromium accessibility tree,
-8. **WebView copy bridge**: intercept the exact string a site's Copy button sends to `navigator.clipboard.writeText`, without depending on the Windows clipboard,
-9. optional Windows clipboard Copy-button fallback,
-10. **rendered WebView OCR fallback**: if the translation is visibly on screen but the DOM is unreadable, capture the right pane and OCR the displayed target text with Tesseract.
-
-Version 1.5.0 rejects common false positives such as language menus (`한국어 / 영어 / 일본어 / 중국어 ...`) at both provider and cache boundaries. It also uses `translation-cache-hybrid-v3.json`, so incorrect results cached by older extractors are not reused. Use **번역 캐시 비우기** at any time to force the next sentence through the translators again.
-
-Use **번역 결과 읽기 테스트** before live monitoring if a web provider visually translates but RoiLingo does not show the result. The runtime log now identifies methods such as `text-node-geometry`, `copy-bridge`, `copy-button-clipboard`, and `webview-visual-ocr`.
-
-## API / local translation
-
-### Papago API
-
-Requires NAVER Cloud Papago Text Translation Client ID and Client Secret.
-
-### Google API
-
-Uses Cloud Translation Basic v2 with an API key. The key is sent using the `X-goog-api-key` request header instead of a URL query parameter.
-
-### DeepL API
-
-Supports API Free and Pro endpoints. During **API/로컬 연결 테스트**, RoiLingo also attempts to read DeepL character usage/limit from `/v2/usage`.
-
-### LibreTranslate / Argos Translate
-
-LibreTranslate is free/open-source and can run locally. RoiLingo defaults its endpoint field to:
-
-```text
-http://localhost:5000
-```
-
-If Docker Desktop is installed, run:
+Create release package:
 
 ```bat
-scripts\libretranslate-local.cmd
+scripts\build_release.bat
 ```
 
-Then enable **LibreTranslate** in RoiLingo. A self-hosted local instance normally does not need an API key.
-
-## Quota / credit rotation
-
-Not every translation service exposes quota information through the same API, so RoiLingo uses two layers:
-
-- **local limits** for every API/local provider: daily request count and monthly source-character count;
-- **provider-specific actual usage** where practical: currently DeepL usage is queried during the connection test.
-
-`0` means unlimited for a local limit. In Hybrid Balanced mode, API/local providers rotate, which helps avoid spending every provider's quota at the same time. Cache hits consume no translation request.
-
-Local usage counters are saved in:
-
-```text
-%LocalAppData%\RobloxLiveTranslator\api-usage.json
-```
-
-Resetting this file/counter does **not** reset a provider's real billing or server-side quota.
-
-## Secrets and privacy
-
-API credentials are stored in:
-
-```text
-%LocalAppData%\RobloxLiveTranslator\api-secrets.dpapi
-```
-
-The file is encrypted with Windows DPAPI `CurrentUser`. Secrets are not written to `settings.json`, source code, Git commits, logs, or GitHub Releases.
-
-OCR text is sent only to providers that you enable. Web providers receive text through their normal public translation page. API providers receive text through their configured API endpoint. A local LibreTranslate server can keep translation traffic on the local machine.
-
-## Automatic history and logs
-
-Existing RoiLingo/RobloxLiveTranslator settings remain under:
-
-```text
-%LocalAppData%\RobloxLiveTranslator\
-```
-
-Important files:
-
-```text
-settings.json
-api-secrets.dpapi
-api-usage.json
-translation-cache-hybrid-v3.json
-webview2\
-history\translations-YYYY-MM-DD.jsonl
-logs\runtime-YYYY-MM-DD.log
-exports\translations-*.csv
-```
-
-## CPU usage and stale-queue strategy
-
-RoiLingo does not run OCR on every frame. It captures the target window once per cycle, crops each ROI, computes a small signature, skips unchanged regions, waits for changed text to settle, and only then runs OCR. `Accurate` OCR mode performs extra Tesseract segmentation passes and therefore costs more CPU than `Fast` or `Balanced`.
-
-Translation is not awaited inside the ROI capture loop. Each ROI owns one coalescing translation worker and a monotonically increasing revision. If OCR changes while a web translation is already running, RoiLingo does **not** interrupt the browser mid-navigation; the old result is discarded when it finishes, and only the newest pending sentence is translated next. The pending queue is therefore bounded to one item per ROI, avoiding both stale backlogs and the v1.5 failure mode where repeated cancellation left Papago/Google/DeepL with an empty source editor.
-
-## GitHub publish
-
-Repository name: **RoiLingo**
-
-Recommended description:
-
-> Windows ROI live OCR translator with Tesseract, WebView translators, official APIs, and LibreTranslate/Argos support.
+## GitHub uploader
 
 Run:
 
@@ -273,35 +153,64 @@ github-bootstrap.cmd
 
 The publisher:
 
-- checks Git, .NET SDK, GitHub CLI and login,
-- verifies XAML / restore / Release x64 build,
-- initializes Git if needed,
-- safely handles a repository that has **no first commit yet**,
-- creates `RoiLingo` if missing,
-- updates About/Topics,
-- commits and pushes `main`,
-- waits for the Windows GitHub Actions build when available,
-- builds the Windows release zip,
-- creates/pushes `v1.6.1`,
-- creates the GitHub Release and uploads `RoiLingo-win-x64.zip`.
+1. checks Git / .NET / GitHub CLI;
+2. checks `gh auth status` and starts browser login when required;
+3. runs the project verifier and Release/x64 build;
+4. creates or reuses the `RoiLingo` repository;
+5. preserves existing `origin/main` history instead of force-pushing;
+6. pushes the current complete source snapshot;
+7. updates repository description/topics;
+8. waits for the Windows GitHub Actions build when visible;
+9. builds the self-contained Windows x64 ZIP;
+10. creates/updates tag and Release **v2.0.0** and uploads `RoiLingo-win-x64.zip`.
 
-Version 1.3.0+ fixes the previous `fatal: Needed a single revision` failure: a brand-new repository is no longer probed with `git rev-parse --verify HEAD` under PowerShell's terminating error mode.
+No tokens/API keys are embedded in the uploader.
 
-## Source layout
+## Runtime data
+
+Stored under:
 
 ```text
-src/RobloxLiveTranslator/
-├── Models/
-├── Monitoring/
-├── Native/
-├── Overlay/
-├── Services/
-├── Translation/
-│   ├── Api/
-│   └── Web/
-├── MainWindow.*
-└── RoiEditorWindow.*
+%LocalAppData%\RobloxLiveTranslator\
 ```
+
+Typical files:
+
+```text
+settings.json
+api-secrets.dpapi
+translation-cache-hybrid-v8.json
+history\translations-YYYY-MM-DD.jsonl
+logs\runtime-YYYY-MM-DD.log
+exports\translations-*.csv
+webview2\...
+```
+
+## Architecture
+
+```text
+Target HWND
+  ↓
+Background-first client capture
+  ↓
+Normalized ROI crop
+  ↓
+Cheap change signature
+  ↓ only changed/stable ROI
+Tesseract OCR
+  ↓
+Mixed-language filtering
+  ↓
+Web / API / local translation providers
+  ↓
+Target-script validation + cross-check
+  ↓
+Current ROI overlay + history/log
+```
+
+## Notes on capture support
+
+`PrintWindow` is a Win32 request to the target application to render itself into a supplied device context. It is useful for covered/inactive windows, but an application can still return blank/black content, especially if it stops rendering while minimized or uses protected/GPU-only surfaces. RoiLingo deliberately avoids pretending that a screen-copy of the covering app is the selected target.
 
 ## License
 

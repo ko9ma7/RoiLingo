@@ -37,7 +37,7 @@ public sealed class BudgetedTranslationProvider : ITranslationProvider, IQuotaAw
         return check.Allowed;
     }
 
-    public async Task<string> TranslateAsync(string text, string targetLanguage, CancellationToken cancellationToken)
+    public async Task<string> TranslateAsync(string text, string sourceLanguage, string targetLanguage, CancellationToken cancellationToken)
     {
         var allowed = await _usage.CanUseAsync(Name, _budget.DailyRequestLimit, _budget.MonthlyCharacterLimit, text.Length, cancellationToken);
         if (!allowed.Allowed)
@@ -46,7 +46,7 @@ public sealed class BudgetedTranslationProvider : ITranslationProvider, IQuotaAw
             throw new InvalidOperationException(allowed.Reason);
         }
 
-        var translated = await _inner.TranslateAsync(text, targetLanguage, cancellationToken);
+        var translated = await _inner.TranslateAsync(text, sourceLanguage, targetLanguage, cancellationToken);
         if (!string.IsNullOrWhiteSpace(translated))
             await _usage.RecordAsync(Name, text.Length, cancellationToken);
         return translated;

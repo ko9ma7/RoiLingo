@@ -12,16 +12,19 @@ public sealed class GoogleApiTranslationProvider : ApiProviderBase
     public override TranslationProviderKind Kind => TranslationProviderKind.Api;
     public override bool IsConfigured => _apiKey.Length > 0;
 
-    protected override async Task<string> TranslateCoreAsync(string text, string targetLanguage, CancellationToken ct)
+    protected override async Task<string> TranslateCoreAsync(string text, string sourceLanguage, string targetLanguage, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://translation.googleapis.com/language/translate/v2");
         request.Headers.TryAddWithoutValidation("X-goog-api-key", _apiKey);
-        request.Content = new StringContent(JsonSerializer.Serialize(new
+        var payload = new Dictionary<string, object?>
         {
-            q = text,
-            target = targetLanguage == "zh" ? "zh-CN" : targetLanguage,
-            format = "text"
-        }), Encoding.UTF8, "application/json");
+            ["q"] = text,
+            ["target"] = TranslationLanguages.ToGoogle(targetLanguage),
+            ["format"] = "text"
+        };
+        var source = TranslationLanguages.Normalize(sourceLanguage);
+        if (source != "auto") payload["source"] = TranslationLanguages.ToGoogle(source);
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         using var response = await Http.SendAsync(request, ct);
         var body = await EnsureSuccessAndReadAsync(response, ct);
         using var doc = JsonDocument.Parse(body);

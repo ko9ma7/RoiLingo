@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using RobloxLiveTranslator.Models;
+using RobloxLiveTranslator.Native;
 
 namespace RobloxLiveTranslator.Overlay;
 
@@ -29,6 +30,7 @@ public partial class OverlaySettingsWindow : Window
 
         Loaded += (_, _) =>
         {
+            CaptureExclusion.Apply(this);
             if (RoiCombo.Items.Count > 0) RoiCombo.SelectedIndex = 0;
             else SetControlsEnabled(false);
         };
@@ -57,7 +59,8 @@ public partial class OverlaySettingsWindow : Window
 
             OffsetXSlider.Value = Math.Clamp(roi.OverlayOffsetX, -1000, 1000);
             OffsetYSlider.Value = Math.Clamp(roi.OverlayOffsetY, -800, 800);
-            WidthScaleSlider.Value = Math.Clamp(roi.OverlayWidthScale, 0.45, 3.0);
+            WidthScaleSlider.Value = Math.Clamp(roi.OverlayWidthScale, 0.25, 5.0);
+            HeightScaleSlider.Value = Math.Clamp(roi.OverlayHeightScale, 0.35, 5.0);
             OpacitySlider.Value = Math.Clamp(roi.OverlayOpacity, 0.10, 1.0);
             FontSizeSlider.Value = Math.Clamp(roi.OverlayFontSize, 10, 42);
             ShowSourceCheck.IsChecked = roi.OverlayShowSource;
@@ -75,6 +78,7 @@ public partial class OverlaySettingsWindow : Window
         OffsetXSlider.IsEnabled = enabled;
         OffsetYSlider.IsEnabled = enabled;
         WidthScaleSlider.IsEnabled = enabled;
+        HeightScaleSlider.IsEnabled = enabled;
         OpacitySlider.IsEnabled = enabled;
         FontSizeSlider.IsEnabled = enabled;
         ShowSourceCheck.IsEnabled = enabled;
@@ -92,6 +96,7 @@ public partial class OverlaySettingsWindow : Window
         roi.OverlayOffsetX = OffsetXSlider.Value;
         roi.OverlayOffsetY = OffsetYSlider.Value;
         roi.OverlayWidthScale = WidthScaleSlider.Value;
+        roi.OverlayHeightScale = HeightScaleSlider.Value;
         roi.OverlayOpacity = OpacitySlider.Value;
         roi.OverlayFontSize = FontSizeSlider.Value;
         roi.OverlayShowSource = ShowSourceCheck.IsChecked == true;
@@ -108,6 +113,7 @@ public partial class OverlaySettingsWindow : Window
         OffsetXText.Text = $"{OffsetXSlider.Value:0}px";
         OffsetYText.Text = $"{OffsetYSlider.Value:0}px";
         WidthScaleText.Text = $"{WidthScaleSlider.Value:0.00}x";
+        HeightScaleText.Text = $"{HeightScaleSlider.Value:0.00}x";
         OpacityText.Text = $"{OpacitySlider.Value:P0}";
         FontSizeText.Text = $"{FontSizeSlider.Value:0}";
     }
@@ -118,6 +124,7 @@ public partial class OverlaySettingsWindow : Window
         roi.OverlayOffsetX = 0;
         roi.OverlayOffsetY = 0;
         roi.OverlayWidthScale = 1;
+        roi.OverlayHeightScale = 1;
         roi.OverlayOpacity = 0.82;
         roi.OverlayFontSize = 17;
         roi.OverlayShowSource = true;

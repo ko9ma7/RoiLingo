@@ -18,7 +18,7 @@ public sealed class TesseractOcrService : IDisposable
         _mode = string.IsNullOrWhiteSpace(mode) ? "Balanced" : mode;
     }
 
-    public async Task<OcrResult> ReadAsync(Bitmap roi, string languages, CancellationToken cancellationToken = default)
+    public async Task<OcrResult> ReadAsync(Bitmap roi, string languages, CancellationToken cancellationToken = default, bool fastPath = false)
     {
         await _models.EnsureLanguagesAsync(languages, cancellationToken: cancellationToken);
         using var prepared = ImagePreprocessor.PrepareForOcr(roi);
@@ -36,7 +36,7 @@ public sealed class TesseractOcrService : IDisposable
             lock (engine)
             {
                 using var pix = Pix.LoadFromMemory(bytes);
-                var modes = _mode.Equals("Fast", StringComparison.OrdinalIgnoreCase)
+                var modes = fastPath || _mode.Equals("Fast", StringComparison.OrdinalIgnoreCase)
                     ? new[] { PageSegMode.SparseText }
                     : _mode.Equals("Accurate", StringComparison.OrdinalIgnoreCase)
                         ? new[] { PageSegMode.SparseText, PageSegMode.Auto, PageSegMode.SingleBlock }

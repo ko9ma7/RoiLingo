@@ -33,12 +33,12 @@ public sealed class TranslationCache
         _entries = new ConcurrentDictionary<string, CacheEntry>(loaded);
     }
 
-    public bool TryGet(string source, string target, out string provider, out string text)
+    public bool TryGet(string source, string sourceLanguage, string targetLanguage, out string provider, out string text)
     {
-        var key = Key(source, target);
+        var key = Key(source, sourceLanguage, targetLanguage);
         if (_entries.TryGetValue(key, out var entry))
         {
-            if (TranslationTextValidator.IsUsable(source, entry.Text))
+            if (TranslationTextValidator.IsUsable(source, entry.Text, targetLanguage))
             {
                 provider = entry.Provider;
                 text = entry.Text;
@@ -53,12 +53,12 @@ public sealed class TranslationCache
         return false;
     }
 
-    public async Task PutAsync(string source, string target, string provider, string text)
+    public async Task PutAsync(string source, string sourceLanguage, string targetLanguage, string provider, string text)
     {
         await _gate.WaitAsync();
         try
         {
-            _entries[Key(source, target)] = new CacheEntry(provider, text, DateTimeOffset.Now);
+            _entries[Key(source, sourceLanguage, targetLanguage)] = new CacheEntry(provider, text, DateTimeOffset.Now);
             if (_entries.Count > 5000)
             {
                 foreach (var key in _entries.OrderBy(kv => kv.Value.UpdatedAt)
@@ -112,5 +112,6 @@ public sealed class TranslationCache
         }
     }
 
-    private static string Key(string source, string target) => $"{target}\u001f{source.Trim().ToLowerInvariant()}";
+    private static string Key(string source, string sourceLanguage, string targetLanguage) =>
+        $"{TranslationLanguages.Normalize(sourceLanguage)}\u001f{TranslationLanguages.Normalize(targetLanguage, false)}\u001f{source.Trim().ToLowerInvariant()}";
 }

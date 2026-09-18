@@ -20,7 +20,7 @@ public sealed class MultiTranslator
     {
         _providers = providers.Where(p => p.IsConfigured).ToArray();
         _preferred = string.IsNullOrWhiteSpace(preferred) ? "Auto" : preferred;
-        _strategy = string.IsNullOrWhiteSpace(strategy) ? "HybridBalanced" : strategy;
+        _strategy = string.IsNullOrWhiteSpace(strategy) ? "WebOnly" : strategy;
         _windowMs = Math.Clamp(windowMs, 1200, 12000);
         _cache = cache;
     }
@@ -28,9 +28,25 @@ public sealed class MultiTranslator
     public bool HasProvider => _providers.Count > 0;
     public event Action<string>? Diagnostic;
 
-    public async Task<TranslationBundle> TranslateAsync(string source, string targetLanguage, CancellationToken cancellationToken)
+    public async Task<TranslationBundle> TranslateAsync(string source, string sourceLanguage, string targetLanguage, CancellationToken cancellationToken)
     {
-        if (_cache.TryGet(source, targetLanguage, out var cachedProvider, out var cachedText))
+        sourceLanguage = TranslationLanguages.Normalize(sourceLanguage);
+        targetLanguage = TranslationLanguages.Normalize(targetLanguage, false);
+        if (sourceLanguage != "auto" && sourceLanguage.Equals(targetLanguage, StringComparison.OrdinalIgnoreCase))
+            return new TranslationBundle("원문", source, [new ProviderTranslation("원문", source, TimeSpan.Zero)], 1);
+
+        var hasWeb = _providers.Any(p => p.Kind == TranslationProviderKind.Web);
+        var hasNonWeb = _providers.Any(p => p.Kind != TranslationProviderKind.Web);
+        var webCrossCheckMode = hasWeb &&
+            (_strategy.Equals("WebOnly", StringComparison.OrdinalIgnoreCase) ||
+             _strategy.Equals("MaximumCrossCheck", StringComparison.OrdinalIgnoreCase) ||
+             !hasNonWeb);
+
+        // When Web translators are the only translation path, do not let one old cached answer
+        // short-circuit the whole WebView pipeline. The user explicitly enabled visible Web cross-checking,
+        // so every enabled Web tab should receive the current OCR text. Cache remains a fast path for
+        // API/local hybrid mode where avoiding paid requests is more important.
+        if (!webCrossCheckMode && _cache.TryGet(source, sourceLanguage, targetLanguage, out var cachedProvider, out var cachedText))
             return new TranslationBundle(cachedProvider + " (cache)", cachedText,
                 [new ProviderTranslation(cachedProvider + " (cache)", cachedText, TimeSpan.Zero)], 1);
 
@@ -43,7 +59,7 @@ public sealed class MultiTranslator
         var hardDeadlineMs = Math.Max(12000, _windowMs + 5000);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linked.CancelAfter(TimeSpan.FromMilliseconds(hardDeadlineMs + 500));
-        var tasks = scheduled.Select(p => TranslateSafeAsync(p, source, targetLanguage, linked.Token)).ToArray();
+        var tasks = scheduled.Select(p => TranslateSafeAsync(p, source, sourceLanguage, targetLanguage, linked.Token)).ToArray();
         var timer = Stopwatch.StartNew();
         long? crossCheckReadyAtMs = null;
 
@@ -87,7 +103,7 @@ public sealed class MultiTranslator
 
         var selected = SelectPreferred(completed, targetLanguage);
         var agreement = Agreement(completed);
-        await _cache.PutAsync(source, targetLanguage, selected.Provider, selected.Text);
+        await _cache.PutAsync(source, sourceLanguage, targetLanguage, selected.Provider, selected.Text);
         return new TranslationBundle(selected.Provider, selected.Text, completed, agreement);
     }
 
@@ -109,10 +125,15 @@ public sealed class MultiTranslator
         if (_strategy.Equals("ApiOnly", StringComparison.OrdinalIgnoreCase))
             return PickRotating(all.Where(p => p.Kind != TranslationProviderKind.Web).ToArray(), 2);
 
-        // HybridBalanced: one API/local provider + one web provider. This preserves cross-checking
-        // while avoiding spending every paid API credit on every OCR event.
+        // HybridBalanced: if API/local providers exist, use one API/local + one web provider to
+        // preserve credits.  If there is no API/local provider at all, all enabled Web providers
+        // are scheduled together.  That matches RoiLingo's original Web cross-check use case and
+        // also makes every enabled translator tab visibly receive the OCR sentence.
         var api = all.Where(p => p.Kind != TranslationProviderKind.Web).ToArray();
         var web = all.Where(p => p.Kind == TranslationProviderKind.Web).ToArray();
+        if (api.Length == 0 && web.Length > 0)
+            return web;
+
         var result = new List<ITranslationProvider>(2);
 
         var preferred = all.FirstOrDefault(p => !IsAutoPreferred() && p.Name.Equals(_preferred, StringComparison.OrdinalIgnoreCase));
@@ -161,16 +182,16 @@ public sealed class MultiTranslator
             .Cast<ProviderTranslation>()
             .ToList();
 
-    private async Task<ProviderTranslation?> TranslateSafeAsync(ITranslationProvider provider, string source, string target, CancellationToken ct)
+    private async Task<ProviderTranslation?> TranslateSafeAsync(ITranslationProvider provider, string source, string sourceLanguage, string target, CancellationToken ct)
     {
         try
         {
             var sw = Stopwatch.StartNew();
-            var text = await provider.TranslateAsync(source, target, ct);
+            var text = await provider.TranslateAsync(source, sourceLanguage, target, ct);
             sw.Stop();
             if (string.IsNullOrWhiteSpace(text)) return null;
             text = text.Trim();
-            if (!TranslationTextValidator.IsUsable(source, text))
+            if (!TranslationTextValidator.IsUsable(source, text, target))
             {
                 Diagnostic?.Invoke($"{provider.Name}: 번역 결과가 페이지 UI/실패 문구로 판단되어 폐기됨");
                 return null;

@@ -28,10 +28,11 @@ public partial class OverlayWindow : Window
         _target = target;
         _settings = settings;
         _persist = persist;
-        _timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _timer.Tick += (_, _) => AlignAndRender();
         Loaded += (_, _) =>
         {
+            CaptureExclusion.Apply(this);
             ApplyClickThrough();
             _timer.Start();
             AlignAndRender(forceRender: true);
@@ -122,7 +123,7 @@ public partial class OverlayWindow : Window
                 Padding = new Thickness(9, 5, 9, 5),
                 Child = new TextBlock
                 {
-                    Text = "오버레이 편집: 박스 드래그=이동 · 우하단 핸들=크기 · Ctrl+휠=투명도 · Shift+휠=글자",
+                    Text = "오버레이 편집: 박스=이동 · 파란 핸들=가로/세로 독립 크기 · 휠=가로 · Shift+휠=세로 · Ctrl+휠=투명도",
                     Foreground = Brushes.White,
                     FontSize = 12
                 }
@@ -137,9 +138,10 @@ public partial class OverlayWindow : Window
             if (!_latest.TryGetValue(roi.Id, out var update)) continue;
             var x = roi.X * RootCanvas.ActualWidth;
             var y = roi.Y * RootCanvas.ActualHeight;
-            var widthScale = Math.Clamp(roi.OverlayWidthScale, 0.45, 3.0);
+            var widthScale = Math.Clamp(roi.OverlayWidthScale, 0.25, 5.0);
+            var heightScale = Math.Clamp(roi.OverlayHeightScale, 0.35, 5.0);
             var baseWidth = Math.Max(140, roi.Width * RootCanvas.ActualWidth);
-            var w = Math.Clamp(baseWidth * widthScale, 140, RootCanvas.ActualWidth);
+            var w = Math.Clamp(baseWidth * widthScale, 80, RootCanvas.ActualWidth);
             var roiHeight = roi.Height * RootCanvas.ActualHeight;
             var fontSize = Math.Clamp(roi.OverlayFontSize, 10, 42);
 
@@ -190,11 +192,14 @@ public partial class OverlayWindow : Window
                 Child = stack,
                 MaxWidth = w,
                 Width = w,
+                ClipToBounds = true,
                 Cursor = _editMode ? Cursors.SizeAll : Cursors.Arrow
             };
 
             border.Measure(new Size(w, double.PositiveInfinity));
-            var desiredH = border.DesiredSize.Height;
+            var naturalH = Math.Max(36, border.DesiredSize.Height);
+            var desiredH = Math.Clamp(naturalH * heightScale, 36, RootCanvas.ActualHeight);
+            border.Height = desiredH;
             var below = y + roiHeight + 4;
             var automaticY = below + desiredH <= RootCanvas.ActualHeight ? below : Math.Max(0, y - desiredH - 4);
             var finalX = Math.Clamp(x + roi.OverlayOffsetX, 0, Math.Max(0, RootCanvas.ActualWidth - w));
@@ -203,8 +208,43 @@ public partial class OverlayWindow : Window
             FrameworkElement visual = border;
             if (_editMode)
             {
-                var editor = new Grid { Width = w };
+                var editor = new Grid { Width = w, Height = desiredH };
                 editor.Children.Add(border);
+
+                // Explicit controls are shown in edit mode so opacity/font sizing does not depend
+                // on remembering modifier-wheel shortcuts.
+                var toolbar = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(4)
+                };
+                Button MakeToolButton(string label, string tip, Action action)
+                {
+                    var button = new Button
+                    {
+                        Content = label,
+                        ToolTip = tip,
+                        Padding = new Thickness(5, 2, 5, 2),
+                        Margin = new Thickness(2, 0, 0, 0),
+                        FontSize = 10,
+                        Opacity = 0.92
+                    };
+                    button.Click += (_, e) =>
+                    {
+                        action();
+                        _persist?.Invoke();
+                        Render();
+                        e.Handled = true;
+                    };
+                    return button;
+                }
+                toolbar.Children.Add(MakeToolButton("투명-", "배경을 더 투명하게", () => roi.OverlayOpacity = Math.Clamp(roi.OverlayOpacity - 0.08, 0.10, 1.0)));
+                toolbar.Children.Add(MakeToolButton("투명+", "배경을 더 진하게", () => roi.OverlayOpacity = Math.Clamp(roi.OverlayOpacity + 0.08, 0.10, 1.0)));
+                toolbar.Children.Add(MakeToolButton("글자-", "번역 글자 작게", () => roi.OverlayFontSize = Math.Clamp(roi.OverlayFontSize - 1, 10, 42)));
+                toolbar.Children.Add(MakeToolButton("글자+", "번역 글자 크게", () => roi.OverlayFontSize = Math.Clamp(roi.OverlayFontSize + 1, 10, 42)));
+                editor.Children.Add(toolbar);
 
                 var grip = new Thumb
                 {
@@ -214,13 +254,13 @@ public partial class OverlayWindow : Window
                     VerticalAlignment = VerticalAlignment.Bottom,
                     Cursor = Cursors.SizeNWSE,
                     Background = Brushes.DeepSkyBlue,
-                    ToolTip = "드래그: 너비/글자 크기 조절"
+                    ToolTip = "드래그: 가로/세로 크기를 독립적으로 조절"
                 };
                 editor.Children.Add(grip);
                 grip.DragDelta += (_, e) =>
                 {
-                    roi.OverlayWidthScale = Math.Clamp(roi.OverlayWidthScale + e.HorizontalChange / Math.Max(160, baseWidth), 0.45, 3.0);
-                    roi.OverlayFontSize = Math.Clamp(roi.OverlayFontSize + e.VerticalChange / 10.0, 10, 42);
+                    roi.OverlayWidthScale = Math.Clamp(roi.OverlayWidthScale + e.HorizontalChange / Math.Max(80, baseWidth), 0.25, 5.0);
+                    roi.OverlayHeightScale = Math.Clamp(roi.OverlayHeightScale + e.VerticalChange / Math.Max(36, naturalH), 0.35, 5.0);
                     _persist?.Invoke();
                     Render();
                 };
@@ -256,9 +296,11 @@ public partial class OverlayWindow : Window
                     if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
                         roi.OverlayOpacity = Math.Clamp(roi.OverlayOpacity + Math.Sign(e.Delta) * 0.05, 0.10, 1.0);
                     else if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+                        roi.OverlayHeightScale = Math.Clamp(roi.OverlayHeightScale + Math.Sign(e.Delta) * 0.08, 0.35, 5.0);
+                    else if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0)
                         roi.OverlayFontSize = Math.Clamp(roi.OverlayFontSize + Math.Sign(e.Delta), 10, 42);
                     else
-                        roi.OverlayWidthScale = Math.Clamp(roi.OverlayWidthScale + Math.Sign(e.Delta) * 0.05, 0.45, 3.0);
+                        roi.OverlayWidthScale = Math.Clamp(roi.OverlayWidthScale + Math.Sign(e.Delta) * 0.08, 0.25, 5.0);
                     _persist?.Invoke();
                     Render();
                     e.Handled = true;

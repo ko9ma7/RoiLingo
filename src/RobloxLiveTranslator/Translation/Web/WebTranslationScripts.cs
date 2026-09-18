@@ -27,9 +27,7 @@ public static class WebTranslationScripts
     '#txtTarget',
     'textarea#txtTarget',
     '#targetEditArea > p',
-    '#targetEditArea',
     '.target_editarea textarea',
-    '.target_editarea',
     '[data-testid="target-textarea"]',
     '[data-testid*="target"] textarea',
     '[data-testid*="target"] [contenteditable="true"]'
@@ -176,7 +174,10 @@ public static class WebTranslationScripts
       if (lang.startsWith('ja')) return (n >= 0x3040 && n <= 0x30FF) || (n >= 0x4E00 && n <= 0x9FFF);
       if (lang.startsWith('zh')) return n >= 0x3400 && n <= 0x9FFF;
       if (lang.startsWith('ru')) return n >= 0x0400 && n <= 0x04FF;
-      return (n >= 65 && n <= 90) || (n >= 97 && n <= 122);
+      if (lang.startsWith('th')) return n >= 0x0E00 && n <= 0x0E7F;
+      if (lang.startsWith('hi')) return n >= 0x0900 && n <= 0x097F;
+      if (lang.startsWith('ar')) return (n >= 0x0600 && n <= 0x06FF) || (n >= 0x0750 && n <= 0x077F);
+      return (n >= 65 && n <= 90) || (n >= 97 && n <= 122) || (n >= 0x00C0 && n <= 0x024F);
     };
     return letters.filter(match).length / letters.length;
   };
@@ -212,8 +213,9 @@ public static class WebTranslationScripts
     .sort((a,b) => b.score - a.score);
 
   const src = sourceCandidates.length ? sourceCandidates[0] : null;
-  const srcCenterX = src ? src.r.left + src.r.width / 2 : innerWidth * 0.25;
-  const srcCenterY = src ? src.r.top + src.r.height / 2 : innerHeight * 0.5;
+  if (!src) return '';
+  const srcCenterX = src.r.left + src.r.width / 2;
+  const srcCenterY = src.r.top + src.r.height / 2;
 
   const candidates = [];
   for (const x of all) {
@@ -278,8 +280,11 @@ public static class WebTranslationScripts
       if (lang.startsWith('ja')) return (n >= 0x3040 && n <= 0x30FF) || (n >= 0x4E00 && n <= 0x9FFF);
       if (lang.startsWith('zh')) return n >= 0x3400 && n <= 0x9FFF;
       if (lang.startsWith('ru')) return n >= 0x0400 && n <= 0x04FF;
+      if (lang.startsWith('th')) return n >= 0x0E00 && n <= 0x0E7F;
+      if (lang.startsWith('hi')) return n >= 0x0900 && n <= 0x097F;
+      if (lang.startsWith('ar')) return (n >= 0x0600 && n <= 0x06FF) || (n >= 0x0750 && n <= 0x077F);
       if (lang.startsWith('el')) return n >= 0x0370 && n <= 0x03FF;
-      return (n >= 65 && n <= 90) || (n >= 97 && n <= 122);
+      return (n >= 65 && n <= 90) || (n >= 97 && n <= 122) || (n >= 0x00C0 && n <= 0x024F);
     };
     return letters.filter(match).length / letters.length;
   };
@@ -339,8 +344,9 @@ public static class WebTranslationScripts
     if (score > srcScore) { src = x; srcScore = score; }
   }
 
-  const srcX = src ? src.cx : innerWidth * 0.25;
-  const srcY = src ? src.cy : innerHeight * 0.48;
+  if (!src) return '';
+  const srcX = src.cx;
+  const srcY = src.cy;
   let best = null;
   let bestScore = -1e9;
   for (const x of items) {
@@ -426,7 +432,10 @@ public static class WebTranslationScripts
       if (lang.startsWith('ja')) return (n >= 0x3040 && n <= 0x30FF) || (n >= 0x4E00 && n <= 0x9FFF);
       if (lang.startsWith('zh')) return n >= 0x3400 && n <= 0x9FFF;
       if (lang.startsWith('ru')) return n >= 0x0400 && n <= 0x04FF;
-      return (n >= 65 && n <= 90) || (n >= 97 && n <= 122);
+      if (lang.startsWith('th')) return n >= 0x0E00 && n <= 0x0E7F;
+      if (lang.startsWith('hi')) return n >= 0x0900 && n <= 0x097F;
+      if (lang.startsWith('ar')) return (n >= 0x0600 && n <= 0x06FF) || (n >= 0x0750 && n <= 0x077F);
+      return (n >= 65 && n <= 90) || (n >= 97 && n <= 122) || (n >= 0x00C0 && n <= 0x024F);
     };
     return letters.filter(match).length / letters.length;
   };
@@ -483,34 +492,22 @@ public static class WebTranslationScripts
 """;
     }
 
-    public static string GoogleUrl(string text, string target) =>
-        $"https://translate.google.com/?sl=auto&tl={Uri.EscapeDataString(MapGoogle(target))}&text={Uri.EscapeDataString(text)}&op=translate";
+    public static string GoogleUrl(string text, string source, string target) =>
+        $"https://translate.google.com/?sl={Uri.EscapeDataString(MapSource(source, TranslationLanguages.ToGoogle))}&tl={Uri.EscapeDataString(TranslationLanguages.ToGoogle(target))}&text={Uri.EscapeDataString(text)}&op=translate";
 
-    public static string PapagoUrl(string text, string target) =>
-        $"https://papago.naver.com/?sk=auto&tk={Uri.EscapeDataString(MapPapago(target))}&st={Uri.EscapeDataString(text)}";
+    public static string PapagoUrl(string text, string source, string target) =>
+        $"https://papago.naver.com/?sk={Uri.EscapeDataString(MapSource(source, TranslationLanguages.ToPapago))}&tk={Uri.EscapeDataString(TranslationLanguages.ToPapago(target))}&st={Uri.EscapeDataString(text)}";
 
-    public static string DeepLUrl(string text, string target) =>
-        $"https://www.deepl.com/translator#auto/{Uri.EscapeDataString(MapDeepL(target))}/{Uri.EscapeDataString(text)}";
+    public static string DeepLUrl(string text, string source, string target) =>
+        $"https://www.deepl.com/translator#{Uri.EscapeDataString(MapSource(source, TranslationLanguages.ToDeepL))}/{Uri.EscapeDataString(TranslationLanguages.ToDeepL(target))}/{Uri.EscapeDataString(text)}";
 
     public static string GoogleHome => "https://translate.google.com/";
     public static string PapagoHome => "https://papago.naver.com/";
     public static string DeepLHome => "https://www.deepl.com/translator";
 
-    private static string MapGoogle(string target) => target switch
+    private static string MapSource(string source, Func<string, string> mapper)
     {
-        "zh" => "zh-CN",
-        _ => target
-    };
-
-    private static string MapPapago(string target) => target switch
-    {
-        "zh" => "zh-CN",
-        _ => target
-    };
-
-    private static string MapDeepL(string target) => target switch
-    {
-        "zh-CN" or "zh" => "zh",
-        _ => target.ToLowerInvariant()
-    };
+        var normalized = TranslationLanguages.Normalize(source);
+        return normalized == "auto" ? "auto" : mapper(normalized);
+    }
 }
