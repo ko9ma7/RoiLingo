@@ -4,7 +4,7 @@ public sealed class AppSettings
 {
     public int SchemaVersion { get; set; }
     public string UiLanguage { get; set; } = "ko-KR";
-    public string CaptureMode { get; set; } = "BackgroundFirst";
+    public string CaptureMode { get; set; } = "Auto";
     public bool BackgroundWarmup { get; set; } = true;
     public string SourceLanguage { get; set; } = "auto";
     public bool OcrLanguageFollowsSource { get; set; } = false;

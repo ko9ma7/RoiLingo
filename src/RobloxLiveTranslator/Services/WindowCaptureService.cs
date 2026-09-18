@@ -5,11 +5,14 @@ using RobloxLiveTranslator.Native;
 namespace RobloxLiveTranslator.Services;
 
 /// <summary>
-/// Captures the selected HWND without depending on its screen position.
-/// BackgroundFirst uses PrintWindow against the client DC first, so a non-minimized
-/// window can normally be captured even when another window is covering it.
-/// Screen capture is only used as a last resort while the target is actually foreground;
-/// this prevents OCR from accidentally reading whatever happens to cover the target.
+/// Captures the selected HWND client area.
+///
+/// Auto mode prefers a direct screen copy while the target is foreground because that is the most
+/// reliable path for GPU/game windows.  When the target is covered/inactive, it falls back to
+/// PrintWindow so the capture is position-independent.  BackgroundOnly never reads from the screen.
+///
+/// PrintWindow can return a successful but visually empty/stale bitmap for accelerated windows, so
+/// returned frames are screened for near-uniform content before they are accepted.
 /// </summary>
 public sealed class WindowCaptureService
 {
@@ -19,9 +22,9 @@ public sealed class WindowCaptureService
 
     public string LastMethod { get; private set; } = "none";
 
-    public WindowCaptureService(string mode = "BackgroundFirst")
+    public WindowCaptureService(string mode = "Auto")
     {
-        _mode = string.IsNullOrWhiteSpace(mode) ? "BackgroundFirst" : mode;
+        _mode = string.IsNullOrWhiteSpace(mode) ? "Auto" : mode;
     }
 
     public Bitmap? CaptureClient(IntPtr hwnd)
@@ -30,16 +33,32 @@ public sealed class WindowCaptureService
         if (hwnd == IntPtr.Zero || !NativeMethods.IsWindow(hwnd)) return null;
         if (!NativeMethods.GetClientRect(hwnd, out var client) || client.Width <= 0 || client.Height <= 0) return null;
 
-        // 1) Position-independent client capture. This is the preferred path for covered/inactive windows.
+        var foreground = IsTargetForeground(hwnd);
+        var minimized = NativeMethods.IsIconic(hwnd);
+        var backgroundOnly = _mode.Equals("BackgroundOnly", StringComparison.OrdinalIgnoreCase);
+        var backgroundFirst = _mode.Equals("BackgroundFirst", StringComparison.OrdinalIgnoreCase);
+
+        // GPU/game windows are most accurately captured from the desktop while they are visible.
+        // This path also avoids accepting a white/stale PrintWindow frame that technically succeeded.
+        if (!backgroundOnly && foreground && !minimized && !backgroundFirst)
+        {
+            var screen = TryScreenClient(hwnd);
+            if (screen is not null)
+            {
+                LastMethod = "screen-foreground";
+                return screen;
+            }
+        }
+
+        // Position-independent background capture for ordinary Win32/Chromium/etc. windows.
         var direct = TryPrintClient(hwnd, client.Width, client.Height, PwClientOnly | PwRenderFullContent)
                      ?? TryPrintClient(hwnd, client.Width, client.Height, PwClientOnly);
         if (direct is not null)
         {
-            LastMethod = NativeMethods.IsIconic(hwnd) ? "PrintWindow-client(minimized)" : "PrintWindow-client";
+            LastMethod = minimized ? "PrintWindow-client(minimized)" : "PrintWindow-client";
             return direct;
         }
 
-        // 2) Some programs ignore PW_CLIENTONLY+PW_RENDERFULLCONTENT but render the full window.
         var full = TryPrintWholeWindow(hwnd);
         if (full is not null)
         {
@@ -47,20 +66,30 @@ public sealed class WindowCaptureService
             return full;
         }
 
-        if (_mode.Equals("BackgroundOnly", StringComparison.OrdinalIgnoreCase)) return null;
+        if (backgroundOnly || minimized || !foreground) return null;
 
-        // 3) Screen fallback is safe only when the target itself is foreground. Otherwise it would OCR
-        // the covering app instead of the selected app, which is worse than returning no frame.
-        if (!IsTargetForeground(hwnd) || NativeMethods.IsIconic(hwnd)) return null;
-        if (!NativeMethods.TryGetClientScreenRect(hwnd, out var clientRect)) return null;
+        // Final fallback for foreground windows, including BackgroundFirst mode.
+        var fallback = TryScreenClient(hwnd);
+        if (fallback is not null)
+        {
+            LastMethod = "screen-foreground-fallback";
+            return fallback;
+        }
+
+        return null;
+    }
+
+    private static Bitmap? TryScreenClient(IntPtr hwnd)
+    {
+        if (!NativeMethods.TryGetClientScreenRect(hwnd, out var clientRect) || clientRect.Width <= 0 || clientRect.Height <= 0)
+            return null;
 
         try
         {
             var screen = new Bitmap(clientRect.Width, clientRect.Height, PixelFormat.Format32bppArgb);
             using var g = Graphics.FromImage(screen);
             g.CopyFromScreen(clientRect.Left, clientRect.Top, 0, 0, screen.Size, CopyPixelOperation.SourceCopy);
-            LastMethod = "screen-foreground-fallback";
-            return screen;
+            return IsVisuallyEmpty(screen) ? DisposeAndNull(screen) : screen;
         }
         catch
         {
@@ -81,7 +110,7 @@ public sealed class WindowCaptureService
                 finally { g.ReleaseHdc(hdc); }
             }
 
-            if (printed && !IsAlmostBlack(bitmap)) return bitmap;
+            if (printed && !IsVisuallyEmpty(bitmap)) return bitmap;
             bitmap.Dispose();
             return null;
         }
@@ -108,15 +137,20 @@ public sealed class WindowCaptureService
                 try { printed = NativeMethods.PrintWindow(hwnd, hdc, PwRenderFullContent); }
                 finally { g.ReleaseHdc(hdc); }
             }
-            if (!printed || IsAlmostBlack(whole)) return null;
+            if (!printed || IsVisuallyEmpty(whole)) return null;
 
-            // Use the current client origin only to crop the already-rendered off-screen image.
             if (!NativeMethods.TryGetClientScreenRect(hwnd, out var clientScreen)) return null;
             var offsetX = clientScreen.Left - windowRect.Left;
             var offsetY = clientScreen.Top - windowRect.Top;
             var crop = new Rectangle(offsetX, offsetY, client.Width, client.Height);
             if (crop.X < 0 || crop.Y < 0 || crop.Right > whole.Width || crop.Bottom > whole.Height) return null;
-            return whole.Clone(crop, PixelFormat.Format32bppArgb);
+            var result = whole.Clone(crop, PixelFormat.Format32bppArgb);
+            if (IsVisuallyEmpty(result))
+            {
+                result.Dispose();
+                return null;
+            }
+            return result;
         }
         catch
         {
@@ -133,21 +167,50 @@ public sealed class WindowCaptureService
         return targetRoot == foregroundRoot;
     }
 
-    private static bool IsAlmostBlack(Bitmap bitmap)
+    /// <summary>
+    /// Rejects common PrintWindow false-success frames: almost-black, almost-white, or extremely
+    /// uniform images.  A real game/UI frame normally has enough range/variance to pass this test.
+    /// </summary>
+    private static bool IsVisuallyEmpty(Bitmap bitmap)
     {
-        var total = 0;
+        var count = 0;
         var dark = 0;
-        var stepX = Math.Max(1, bitmap.Width / 24);
+        var light = 0;
+        double sum = 0;
+        double sumSq = 0;
+        var min = 255;
+        var max = 0;
+        var stepX = Math.Max(1, bitmap.Width / 32);
         var stepY = Math.Max(1, bitmap.Height / 24);
+
         for (var y = 0; y < bitmap.Height; y += stepY)
         {
             for (var x = 0; x < bitmap.Width; x += stepX)
             {
                 var c = bitmap.GetPixel(x, y);
-                total++;
-                if (c.R < 4 && c.G < 4 && c.B < 4) dark++;
+                var gray = (c.R * 30 + c.G * 59 + c.B * 11) / 100;
+                count++;
+                if (gray < 5) dark++;
+                if (gray > 250) light++;
+                sum += gray;
+                sumSq += gray * gray;
+                min = Math.Min(min, gray);
+                max = Math.Max(max, gray);
             }
         }
-        return total > 0 && dark / (double)total > 0.985;
+
+        if (count == 0) return true;
+        if (dark / (double)count > 0.985 || light / (double)count > 0.985) return true;
+
+        var mean = sum / count;
+        var variance = Math.Max(0, sumSq / count - mean * mean);
+        var range = max - min;
+        return range < 6 && variance < 3.0;
+    }
+
+    private static Bitmap? DisposeAndNull(Bitmap bitmap)
+    {
+        bitmap.Dispose();
+        return null;
     }
 }

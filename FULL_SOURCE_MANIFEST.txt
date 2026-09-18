@@ -1,11 +1,10 @@
-RoiLingo 2.2.0 full source manifest
+RoiLingo 2.2.1 full source manifest
 
 .editorconfig
 .gitattributes
 .github/REPOSITORY_METADATA.md
 .github/workflows/windows-build.yml
 .gitignore
-FULL_SOURCE_MANIFEST.txt
 LICENSE
 PATCH_NOTES_1.0.1.md
 PATCH_NOTES_1.0.2.md
@@ -24,6 +23,7 @@ PATCH_NOTES_2.0.0.md
 PATCH_NOTES_2.1.0.md
 PATCH_NOTES_2.1.1.md
 PATCH_NOTES_2.2.0.md
+PATCH_NOTES_2.2.1.md
 README.md
 RobloxLiveTranslator.sln
 SOURCE_VALIDATION.txt

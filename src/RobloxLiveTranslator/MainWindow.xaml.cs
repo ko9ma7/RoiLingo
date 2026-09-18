@@ -269,9 +269,18 @@ public partial class MainWindow : Window
 
     private WebTranslatorHostWindow GetOrCreateWebHost()
     {
-        if (_webHost is { IsLoaded: true }) return _webHost;
-        _webHost = new WebTranslatorHostWindow();
-        return _webHost;
+        // Reuse the same host even before Loaded fires. Translation providers keep direct references
+        // to its WebView controls; replacing an unshown host would orphan those references and make
+        // later lazy initialization operate on a WebView that is not attached to the shown window.
+        if (_webHost is not null) return _webHost;
+
+        var created = new WebTranslatorHostWindow();
+        created.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_webHost, created)) _webHost = null;
+        };
+        _webHost = created;
+        return created;
     }
 
     private async Task PrepareWebEngineInBackgroundAsync()
@@ -304,25 +313,34 @@ public partial class MainWindow : Window
             var host = GetOrCreateWebHost();
             await host.EnsureShownAsync();
 
-            var views = new List<WebView2>(3);
-            if (_settings.WebProviders.Papago) views.Add(host.Papago);
-            if (_settings.WebProviders.Google) views.Add(host.Google);
-            if (_settings.WebProviders.DeepL) views.Add(host.DeepL);
+            var requested = new List<(string Name, WebView2 View, string Home)>();
+            if (_settings.WebProviders.Papago) requested.Add(("Papago Web", host.Papago, WebTranslationScripts.PapagoHome));
+            if (_settings.WebProviders.Google) requested.Add(("Google Web", host.Google, WebTranslationScripts.GoogleHome));
+            if (_settings.WebProviders.DeepL) requested.Add(("DeepL Web", host.DeepL, WebTranslationScripts.DeepLHome));
 
-            await _webRuntime.InitializeAsync(views);
-            _webEngineInitialized = views.Count > 0 && views.All(v => v.CoreWebView2 is not null);
-            if (!_webEngineInitialized)
-                throw new InvalidOperationException("백그라운드 WebView2 번역 엔진 초기화에 실패했습니다.");
-
-            if (navigateHome)
+            var ready = 0;
+            foreach (var item in requested)
             {
-                if (_settings.WebProviders.Papago && host.Papago.CoreWebView2 is not null)
-                    host.Papago.CoreWebView2.Navigate(WebTranslationScripts.PapagoHome);
-                if (_settings.WebProviders.Google && host.Google.CoreWebView2 is not null)
-                    host.Google.CoreWebView2.Navigate(WebTranslationScripts.GoogleHome);
-                if (_settings.WebProviders.DeepL && host.DeepL.CoreWebView2 is not null)
-                    host.DeepL.CoreWebView2.Navigate(WebTranslationScripts.DeepLHome);
+                try
+                {
+                    // Initialize each WebView independently. One provider changing/breaking must not
+                    // prevent the other providers from becoming available.
+                    await _webRuntime.InitializeAsync([item.View]);
+                    if (item.View.CoreWebView2 is null)
+                        throw new InvalidOperationException("CoreWebView2가 생성되지 않았습니다.");
+
+                    ready++;
+                    if (navigateHome) item.View.CoreWebView2.Navigate(item.Home);
+                }
+                catch (Exception ex)
+                {
+                    AddLog($"WEBENG  {item.Name} 초기화 실패: {ex.Message}");
+                }
             }
+
+            _webEngineInitialized = ready > 0;
+            if (!_webEngineInitialized)
+                throw new InvalidOperationException("활성화된 Web 번역기 중 초기화에 성공한 항목이 없습니다.");
         }
         finally
         {
@@ -332,10 +350,28 @@ public partial class MainWindow : Window
 
     private async Task EnsureEngineViewReadyAsync(WebView2 view)
     {
+        if (!Dispatcher.CheckAccess())
+        {
+            await Dispatcher.InvokeAsync(() => EnsureEngineViewReadyAsync(view)).Task.Unwrap();
+            return;
+        }
+
         if (view.CoreWebView2 is not null) return;
-        await EnsureWebEngineReadyAsync(navigateHome: false);
-        if (view.CoreWebView2 is null)
-            throw new InvalidOperationException("웹 번역 엔진이 준비되지 않았습니다.");
+
+        await _webEngineInitGate.WaitAsync();
+        try
+        {
+            var host = GetOrCreateWebHost();
+            await host.EnsureShownAsync();
+            await _webRuntime.InitializeAsync([view]);
+            if (view.CoreWebView2 is null)
+                throw new InvalidOperationException("해당 웹 번역 엔진이 준비되지 않았습니다.");
+            _webEngineInitialized = true;
+        }
+        finally
+        {
+            _webEngineInitGate.Release();
+        }
     }
 
     // These WebViews are only a visible diagnostics/manual-preview surface in Advanced Settings.
@@ -635,7 +671,7 @@ public partial class MainWindow : Window
         var providers = CreateTranslationProviders().Where(x => x.IsConfigured).ToArray();
         if (providers.Length == 0)
             throw new InvalidOperationException("사용 가능한 번역 Provider가 없습니다.");
-        _translationCache ??= new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v10.json");
+        _translationCache ??= new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v11.json");
         var translator = new MultiTranslator(providers, _settings.PreferredProvider, _settings.TranslationStrategy,
             _settings.ProviderWindowMs, _translationCache);
         translator.Diagnostic += message => Dispatcher.Invoke(() => AddLog("TRANS   " + message));
@@ -696,24 +732,16 @@ public partial class MainWindow : Window
             SetRunningUi(true);
             if (AdvancedPanel.Visibility == Visibility.Visible) CloseAdvancedSettings();
 
-            // Web translation must work even when Advanced Settings has never been opened.
-            // The off-screen engine host is independent from the collapsible settings UI. A background
-            // warm-up normally makes this instant; if it is not ready yet, Start waits only for the
-            // engine itself so the first captured event is not lost.
-            if (StrategyUsesWeb() && HasEnabledWebProvider())
-            {
-                StatusText.Text = "웹 번역 엔진 준비 중...";
-                await EnsureWebEngineReadyAsync(navigateHome: false);
-                AddLog("WEBENG  시작 버튼에서 웹 번역 엔진 준비 확인");
-            }
-
+            // Do NOT block capture/OCR startup on WebView2. The monitor starts immediately and each
+            // Web provider lazily initializes its own engine on the first translation request. This
+            // keeps OCR/event capture alive even if a web translator is slow or temporarily broken.
             var providers = CreateTranslationProviders().Where(x => x.IsConfigured).ToArray();
             if (providers.Length == 0)
-                throw new InvalidOperationException("활성화되고 설정이 완료된 번역 Provider가 없습니다. Web 또는 API/로컬 설정을 확인하세요.");
+                AddLog("WARN    활성 번역 Provider가 없습니다. OCR 캡처/로그는 계속 동작하지만 번역 결과는 생성되지 않습니다.");
 
             var models = new ModelManager();
             _ocr = new TesseractOcrService(models, _settings.OcrMode);
-            _translationCache = new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v10.json");
+            _translationCache = new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v11.json");
             var translator = new MultiTranslator(providers, _settings.PreferredProvider, _settings.TranslationStrategy, _settings.ProviderWindowMs, _translationCache);
             translator.Diagnostic += message => Dispatcher.Invoke(() => AddLog("TRANS   " + message));
 
@@ -727,7 +755,9 @@ public partial class MainWindow : Window
             _monitor.TranslationCleared += roiId => Dispatcher.Invoke(() => OnTranslationCleared(roiId));
             _monitor.TranslationUpdated += update => Dispatcher.Invoke(() => OnTranslation(update));
             _monitor.Start();
+            AddLog("START   ROI 캡처/OCR 감시를 먼저 시작했습니다. WebView 번역기는 필요 시 지연 초기화합니다.");
             if (_settings.BackgroundWarmup) _ = WarmUpAfterStartAsync(models);
+            else if (StrategyUsesWeb() && HasEnabledWebProvider()) _ = PrepareWebEngineInBackgroundAsync();
             StatusText.Text = "실시간 번역 실행 중";
             AddLog($"START   ROI 감시 + {_settings.TranslationStrategy} / {TranslationLanguages.DisplayName(_settings.SourceLanguage)} → {TranslationLanguages.DisplayName(_settings.TargetLanguage)} / OCR={_settings.OcrLanguages} / 혼합처리={(_settings.SmartMixedText ? "ON" : "OFF")} / Provider={string.Join(", ", providers.Select(x => x.Name))}");
         }

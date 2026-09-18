@@ -1,9 +1,9 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 $RepoName = "RoiLingo"
 $Visibility = "public"
 $Description = "Windows live OCR translator with fixed ROI monitoring, global quick-capture hotkeys, overlays, Web/API/local translation, and history."
 $Topics = @("windows", "wpf", "csharp", "ocr", "tesseract", "translation", "screen-translator", "webview2", "gaming", "libretranslate", "i18n", "overlay", "hotkeys")
-$Tag = "v2.2.0"
+$Tag = "v2.2.1"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $root
 

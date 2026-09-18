@@ -1,19 +1,20 @@
-RoiLingo 2.2.0 source validation
+RoiLingo 2.2.1 source validation
 
 Static validation performed in this environment:
 PASS - all XAML/XML files are well-formed UTF-8 XML
 PASS - duplicate x:Name check
 PASS - XAML event handler name -> code-behind method check
 PASS - C# brace/parenthesis/bracket lexical balance check
-PASS - quick capture source files present
-PASS - global hotkey Win32 wrapper present
-PASS - quick first-success translation path present
-PASS - fixed ROI cross-check pipeline retained
+PASS - hidden WebView host keeps Papago/Google/DeepL materialized simultaneously
+PASS - WebTranslatorHostWindow instance is reused before Loaded; provider WebView references cannot be orphaned by host replacement
+PASS - Start no longer blocks ROI monitor startup on WebView initialization
+PASS - Web providers initialize independently/lazily
+PASS - Auto capture prefers foreground screen capture for GPU/game windows
+PASS - inactive/covered target still attempts PrintWindow background capture
+PASS - PrintWindow false-success blank/uniform frames are rejected
 PASS - transient ROI snapshot queue retained
-PASS - background-first target-window capture retained
-PASS - OCR backend boundary (IOcrService) added while Tesseract remains built-in
-PASS - GitHub publisher updated to v2.2.0
-PASS - diagnostic script included
+PASS - quick capture/hotkey workflows retained
+PASS - GitHub publisher updated to v2.2.1
 
 Important limitation:
 NOT RUN - actual Windows .NET/WPF compilation. This container does not have the .NET SDK/WindowsDesktop toolchain or NuGet network access.

@@ -1,6 +1,6 @@
-# RoiLingo 2.2.0
+# RoiLingo 2.2.1
 
-> **2.2.0:** 고정 ROI 실시간 감시 외에 전역 단축키 기반 **빠른 영역 번역 / 활성 창 번역 / 클립보드 번역**을 추가했습니다. 기본 화면은 여전히 작게 유지하며, `대상 → ROI → 시작`만으로 기존 실시간 감시를 사용할 수 있습니다.
+> **2.2.1:** 고정 ROI 실시간 감시 외에 전역 단축키 기반 **빠른 영역 번역 / 활성 창 번역 / 클립보드 번역**을 추가했습니다. 기본 화면은 여전히 작게 유지하며, `대상 → ROI → 시작`만으로 기존 실시간 감시를 사용할 수 있습니다.
 
 
 RoiLingo is a compact Windows WPF utility for **target-window ROI OCR → translation → game overlay**.
@@ -199,7 +199,7 @@ The publisher:
 7. updates repository description/topics;
 8. waits for the Windows GitHub Actions build when visible;
 9. builds the self-contained Windows x64 ZIP;
-10. creates/updates tag and Release **v2.2.0** and uploads `RoiLingo-win-x64.zip`.
+10. creates/updates tag and Release **v2.2.1** and uploads `RoiLingo-win-x64.zip`.
 
 No tokens/API keys are embedded in the uploader.
 
@@ -216,7 +216,7 @@ Typical files:
 ```text
 settings.json
 api-secrets.dpapi
-translation-cache-hybrid-v10.json
+translation-cache-hybrid-v11.json
 history\translations-YYYY-MM-DD.jsonl
 logs\runtime-YYYY-MM-DD.log
 exports\translations-*.csv

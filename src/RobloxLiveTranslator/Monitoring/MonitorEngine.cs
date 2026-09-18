@@ -19,6 +19,8 @@ public sealed class MonitorEngine : IAsyncDisposable
     private readonly Dictionary<Guid, RoiState> _states = [];
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private string _lastCaptureMethod = string.Empty;
+    private DateTimeOffset _lastCaptureFailureNotice = DateTimeOffset.MinValue;
 
     private sealed class RoiState
     {
@@ -132,10 +134,21 @@ public sealed class MonitorEngine : IAsyncDisposable
                 using var frame = _capture.CaptureClient(_hwnd);
                 if (frame is null)
                 {
-                    Status?.Invoke("대상 창 캡처 대기 중: 가려진/비활성 창은 백그라운드 캡처를 시도합니다. 최소화 또는 GPU 보호 창은 캡처가 제한될 수 있습니다.");
+                    var now = DateTimeOffset.Now;
+                    if (now - _lastCaptureFailureNotice >= TimeSpan.FromSeconds(5))
+                    {
+                        _lastCaptureFailureNotice = now;
+                        Status?.Invoke("대상 창 프레임을 얻지 못했습니다. 전면 게임이면 캡처 방식을 '자동'으로 사용하세요. 비활성 GPU 게임은 Windows가 백그라운드 프레임을 제공하지 않을 수 있습니다.");
+                    }
                 }
                 else
                 {
+                    if (!string.Equals(_lastCaptureMethod, _capture.LastMethod, StringComparison.Ordinal))
+                    {
+                        _lastCaptureMethod = _capture.LastMethod;
+                        Status?.Invoke($"캡처 정상: {_capture.LastMethod} / {frame.Width}x{frame.Height}");
+                    }
+
                     foreach (var roi in _settings.Rois.Where(r => r.Enabled).OrderByDescending(r => r.EventMode).ToArray())
                     {
                         ct.ThrowIfCancellationRequested();

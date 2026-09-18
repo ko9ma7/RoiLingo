@@ -123,12 +123,12 @@
                                 <TextBox Grid.Row="5" Grid.Column="1" x:Name="ChangeThresholdBox"/>
                                 <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="창 캡처 방식"/>
                                 <ComboBox Grid.Row="6" Grid.Column="1" x:Name="CaptureModeCombo" SelectedValuePath="Tag">
-                                    <ComboBoxItem Content="백그라운드 우선 (가려진/비활성 창 권장)" Tag="BackgroundFirst"/>
+                                    <ComboBoxItem Content="자동 (권장: 전면 게임=화면 / 비활성=백그라운드)" Tag="Auto"/>
+                                    <ComboBoxItem Content="백그라운드 우선" Tag="BackgroundFirst"/>
                                     <ComboBoxItem Content="백그라운드만 (화면 복사 사용 안 함)" Tag="BackgroundOnly"/>
-                                    <ComboBoxItem Content="자동 + 전면 화면 폴백" Tag="Auto"/>
                                 </ComboBox>
                                 <TextBlock Grid.Row="7" Grid.ColumnSpan="2" Margin="4,8,4,0" Foreground="#666" TextWrapping="Wrap"
-                                           Text="자동 감지에서는 'OCR 언어' 버튼에서 선택한 언어팩을 동시에 사용합니다. ROI는 창 내부 비율 좌표로 저장되어 창이 이동해도 유지됩니다. 백그라운드 우선은 다른 창이 가려도 PrintWindow 캡처를 먼저 사용합니다."/>
+                                           Text="자동 감지에서는 'OCR 언어' 버튼에서 선택한 언어팩을 동시에 사용합니다. ROI는 창 내부 비율 좌표로 저장되어 창이 이동해도 유지됩니다. 자동은 전면 게임에서는 실제 화면을 우선 사용하고, 가려진/비활성 창에서는 PrintWindow 백그라운드 캡처를 시도합니다."/>
                             </Grid>
                         </GroupBox>
                         <GroupBox Header="자동 기록 / 표시">

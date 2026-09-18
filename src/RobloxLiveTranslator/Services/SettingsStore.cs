@@ -41,7 +41,7 @@ public static class SettingsStore
 
     public static void SaveSettings(AppSettings settings)
     {
-        settings.SchemaVersion = 10;
+        settings.SchemaVersion = 11;
         Directory.CreateDirectory(AppDirectory);
         var temp = SettingsPath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(settings, JsonOptions), new UTF8Encoding(false));
@@ -138,7 +138,7 @@ public static class SettingsStore
         {
             // v2.0: background-first capture, faster startup defaults, independent overlay height, and UI locale.
             settings.UiLanguage = string.IsNullOrWhiteSpace(settings.UiLanguage) ? "ko-KR" : settings.UiLanguage;
-            settings.CaptureMode = string.IsNullOrWhiteSpace(settings.CaptureMode) ? "BackgroundFirst" : settings.CaptureMode;
+            settings.CaptureMode = string.IsNullOrWhiteSpace(settings.CaptureMode) ? "Auto" : settings.CaptureMode;
             settings.BackgroundWarmup = true;
             if (settings.PollIntervalMs >= 200) settings.PollIntervalMs = 150;
             if (settings.SettleMs >= 150) settings.SettleMs = 100;
@@ -156,6 +156,16 @@ public static class SettingsStore
                 roi.OverlayWidth = Math.Max(0, roi.OverlayWidth);
                 roi.OverlayHeight = Math.Max(0, roi.OverlayHeight);
             }
+        }
+
+        if (settings.SchemaVersion < 11)
+        {
+            // v2.2.1: foreground GPU/game windows must prefer the real screen image; PrintWindow
+            // can report success while returning a blank/stale surface.  Auto still uses PrintWindow
+            // when the target is covered/inactive.
+            if (string.IsNullOrWhiteSpace(settings.CaptureMode) ||
+                settings.CaptureMode.Equals("BackgroundFirst", StringComparison.OrdinalIgnoreCase))
+                settings.CaptureMode = "Auto";
         }
 
         settings.LiveWindowWidth = Math.Clamp(settings.LiveWindowWidth, 360, 2400);
@@ -177,7 +187,7 @@ public static class SettingsStore
             roi.OverlayOffsetY = Math.Clamp(roi.OverlayOffsetY, -800, 800);
         }
 
-        settings.SchemaVersion = 10;
+        settings.SchemaVersion = 11;
         return settings;
     }
 
@@ -194,5 +204,5 @@ public static class SettingsStore
         }
     }
 
-    private static AppSettings CreateDefault() => new() { SchemaVersion = 10, TranslationStrategy = "WebOnly", SourceLanguage = "auto", OcrLanguages = "eng+kor", OcrLanguageFollowsSource = false, SmartMixedText = true };
+    private static AppSettings CreateDefault() => new() { SchemaVersion = 11, TranslationStrategy = "WebOnly", SourceLanguage = "auto", OcrLanguages = "eng+kor", OcrLanguageFollowsSource = false, SmartMixedText = true };
 }
