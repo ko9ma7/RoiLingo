@@ -402,7 +402,7 @@ public partial class MainWindow : Window
 
             var models = new ModelManager();
             _ocr = new TesseractOcrService(models, _settings.OcrMode);
-            _translationCache = new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v8.json");
+            _translationCache = new TranslationCache(SettingsStore.AppDirectory, "translation-cache-hybrid-v9.json");
             var translator = new MultiTranslator(providers, _settings.PreferredProvider, _settings.TranslationStrategy, _settings.ProviderWindowMs, _translationCache);
             translator.Diagnostic += message => Dispatcher.Invoke(() => AddLog("TRANS   " + message));
 
@@ -845,21 +845,20 @@ public partial class MainWindow : Window
 
     private void OnTranslationPending(RoiTranslationPending pending)
     {
-        // Do not keep showing the previous sentence while a newer OCR result is being translated.
-        _overlay?.ClearTranslation(pending.RoiId);
-        StatusText.Text = $"{pending.RoiName}: 번역 중...";
-        AddLog($"PENDING {pending.RoiName,-12} OCR={pending.OcrConfidence:P0} | {pending.SourceText}");
+        // v2.1: a transient message may already have disappeared from the game while translation is
+        // still running. Keep the previous completed overlay visible until the new result arrives
+        // (or its hold timer expires), and persist the captured OCR text immediately in the runtime log.
+        StatusText.Text = $"{pending.RoiName}: 문구 캡처 완료 · 번역 중...";
+        AddLog($"CAPTURE {pending.RoiName,-12} OCR={pending.OcrConfidence:P0} at={pending.Timestamp:HH:mm:ss.fff} | {pending.SourceText}");
     }
 
     private void OnTranslationCleared(Guid roiId)
     {
-        _overlay?.ClearTranslation(roiId);
+        // Reserved for an explicit future clear action. Visual disappearance alone no longer clears
+        // completed translations; OverlayWindow owns its configurable hold timer.
         var roi = _settings.Rois.FirstOrDefault(r => r.Id == roiId);
-        if (roi is not null)
-        {
-            StatusText.Text = $"{roi.Name}: 화면에서 문장이 사라짐";
-            AddLog($"CLEAR   {roi.Name,-12} 화면에서 기존 문장 제거");
-        }
+        if (roi is not null) AddLog($"CLEAR   {roi.Name,-12} 명시적 오버레이 제거");
+        _overlay?.ClearTranslation(roiId);
     }
 
     private async void OnTranslation(RoiTranslationUpdate update)

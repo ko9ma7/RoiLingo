@@ -41,7 +41,7 @@ public static class SettingsStore
 
     public static void SaveSettings(AppSettings settings)
     {
-        settings.SchemaVersion = 9;
+        settings.SchemaVersion = 10;
         Directory.CreateDirectory(AppDirectory);
         var temp = SettingsPath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(settings, JsonOptions), new UTF8Encoding(false));
@@ -145,6 +145,19 @@ public static class SettingsStore
             if (settings.ProviderWindowMs > 3000) settings.ProviderWindowMs = 2500;
         }
 
+
+        if (settings.SchemaVersion < 10)
+        {
+            // v2.1: transient messages are retained long enough to finish OCR/translation, and
+            // overlays use independent absolute width/height once the user resizes them directly.
+            foreach (var roi in settings.Rois ?? [])
+            {
+                if (roi.OverlayHoldSeconds <= 0) roi.OverlayHoldSeconds = 20;
+                roi.OverlayWidth = Math.Max(0, roi.OverlayWidth);
+                roi.OverlayHeight = Math.Max(0, roi.OverlayHeight);
+            }
+        }
+
         settings.LiveWindowWidth = Math.Clamp(settings.LiveWindowWidth, 360, 2400);
         settings.LiveWindowHeight = Math.Clamp(settings.LiveWindowHeight, 220, 1600);
         settings.LiveWindowFontSize = Math.Clamp(settings.LiveWindowFontSize, 12, 32);
@@ -155,13 +168,16 @@ public static class SettingsStore
         {
             roi.OverlayWidthScale = roi.OverlayWidthScale <= 0 ? 1.0 : Math.Clamp(roi.OverlayWidthScale, 0.25, 5.0);
             roi.OverlayHeightScale = roi.OverlayHeightScale <= 0 ? 1.0 : Math.Clamp(roi.OverlayHeightScale, 0.35, 5.0);
+            roi.OverlayWidth = Math.Clamp(roi.OverlayWidth, 0, 2400);
+            roi.OverlayHeight = Math.Clamp(roi.OverlayHeight, 0, 1600);
+            roi.OverlayHoldSeconds = Math.Clamp(roi.OverlayHoldSeconds, 0, 300);
             roi.OverlayOpacity = roi.OverlayOpacity <= 0 ? 0.82 : Math.Clamp(roi.OverlayOpacity, 0.10, 1.0);
             roi.OverlayFontSize = roi.OverlayFontSize <= 0 ? 17 : Math.Clamp(roi.OverlayFontSize, 10, 42);
             roi.OverlayOffsetX = Math.Clamp(roi.OverlayOffsetX, -1000, 1000);
             roi.OverlayOffsetY = Math.Clamp(roi.OverlayOffsetY, -800, 800);
         }
 
-        settings.SchemaVersion = 9;
+        settings.SchemaVersion = 10;
         return settings;
     }
 
@@ -178,5 +194,5 @@ public static class SettingsStore
         }
     }
 
-    private static AppSettings CreateDefault() => new() { SchemaVersion = 9, TranslationStrategy = "WebOnly", SourceLanguage = "auto", OcrLanguages = "eng+kor", OcrLanguageFollowsSource = false, SmartMixedText = true };
+    private static AppSettings CreateDefault() => new() { SchemaVersion = 10, TranslationStrategy = "WebOnly", SourceLanguage = "auto", OcrLanguages = "eng+kor", OcrLanguageFollowsSource = false, SmartMixedText = true };
 }

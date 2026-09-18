@@ -1,4 +1,4 @@
-# RoiLingo 2.0.0
+# RoiLingo 2.1.0
 
 RoiLingo is a compact Windows WPF utility for **target-window ROI OCR → translation → game overlay**.
 It is designed to stay small during normal use while keeping OCR, Web/API/local translation, history and diagnostics under Settings.
@@ -20,7 +20,7 @@ Mode: Free Web cross-check (Papago + Google + DeepL)
 
 The compact UI can be switched between **한국어 / English / 日本語 / 简体中文** from the top toolbar.
 
-## What changed in 2.0
+## What changed in 2.1
 
 ### Background / inactive window capture
 
@@ -52,13 +52,14 @@ You no longer need to delete an ROI and recreate it just to adjust its bounds.
 
 ### Overlay resizing
 
-The game overlay now stores **width scale and height scale separately**.
+The game overlay now stores **real width and height independently** after direct editing. Auto sizing remains available when width/height are 0.
 
 During overlay edit mode:
 
-- drag panel → move
-- drag blue corner handle horizontally → width only
-- drag blue corner handle vertically → height only
+- drag the blue move bar → move
+- drag the right blue edge → width only
+- drag the bottom blue edge → height only
+- drag the bottom-right handle → width + height
 - mouse wheel → width
 - Shift + wheel → height
 - Ctrl + wheel → opacity
@@ -87,7 +88,16 @@ Default timing was tightened for live events:
 - translation provider window: 2.5 s
 - EventMode ROIs are checked first and use a one-pass fast OCR path
 
-Translation still uses a latest-wins queue per ROI, so stale messages do not build an unlimited backlog.
+Translation now uses a **small bounded per-ROI FIFO**. A short message is captured as a bitmap snapshot before it disappears, then OCR/translation continues even after the screen has changed. The queue is capped (normal ROI 4, event ROI 12) so it cannot grow without bound.
+
+
+### Transient messages are retained and logged
+
+A visual change now starts a short **snapshot burst**. RoiLingo keeps the most text-like frame from that burst in memory. If a game/admin message appears briefly and disappears before the ROI settles, OCR still runs on that retained bitmap.
+
+The recognized source text is written to the runtime log immediately (`CAPTURE ...`) before translation finishes. Translation work is kept in a bounded FIFO so captured unique messages are not discarded merely because the ROI has already changed again. Successful translations are appended to the normal JSONL translation history.
+
+The game overlay no longer disappears simply because the source text vanished. Completed translations remain visible for the ROI's configured hold time (default 20 s; event ROI at least 30 s). Set the hold time to 0 to keep the latest translation until it is replaced.
 
 ## Translation modes
 
@@ -162,7 +172,7 @@ The publisher:
 7. updates repository description/topics;
 8. waits for the Windows GitHub Actions build when visible;
 9. builds the self-contained Windows x64 ZIP;
-10. creates/updates tag and Release **v2.0.0** and uploads `RoiLingo-win-x64.zip`.
+10. creates/updates tag and Release **v2.1.0** and uploads `RoiLingo-win-x64.zip`.
 
 No tokens/API keys are embedded in the uploader.
 
@@ -179,7 +189,7 @@ Typical files:
 ```text
 settings.json
 api-secrets.dpapi
-translation-cache-hybrid-v8.json
+translation-cache-hybrid-v9.json
 history\translations-YYYY-MM-DD.jsonl
 logs\runtime-YYYY-MM-DD.log
 exports\translations-*.csv

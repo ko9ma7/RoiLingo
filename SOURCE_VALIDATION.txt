@@ -1,19 +1,13 @@
-RoiLingo 2.0.0 source validation
+RoiLingo 2.1.0 source validation
 
-Performed in the generation environment:
-- XAML/XML parse: PASS
-- duplicate x:Name scan: PASS
-- XAML event-handler reference scan: PASS
-- C# delimiter/string/comment structural scan: PASS
-- .csproj XML parse: PASS
-- v2 runtime contract scan (capture/ROI/overlay/i18n/lazy startup/cache): PASS
-- common hard-coded secret pattern scan: PASS
-- ZIP integrity will be checked after packaging
+- XAML/XML parse: 7 XAML files PASS
+- csproj XML parse: PASS
+- duplicate x:Name: PASS
+- XAML event handlers: PASS
+- v2.1 behavior contracts: PASS
+- transient/overlay regression guards: PASS
+- modified C# delimiter structure: PASS
 
-Not performed in this Linux generation environment:
-- Windows WPF dotnet build/run (dotnet SDK is not installed here)
+Static validation errors: 0
 
-Final Windows verification path:
-1. scripts\verify.cmd
-2. github-bootstrap.cmd (also runs verify/build before push)
-3. GitHub Actions windows-build.yml on windows-latest
+Note: this Linux container does not have the Windows WPF .NET toolchain. scripts\verify.cmd performs NuGet restore and the actual Release/x64 compilation on Windows before GitHub publishing.

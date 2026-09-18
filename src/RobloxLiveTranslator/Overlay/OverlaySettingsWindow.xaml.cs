@@ -43,10 +43,7 @@ public partial class OverlaySettingsWindow : Window
 
     private RoiDefinition? SelectedRoi => RoiCombo.SelectedItem as RoiDefinition;
 
-    private void RoiCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        LoadSelected();
-    }
+    private void RoiCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) => LoadSelected();
 
     private void LoadSelected()
     {
@@ -59,8 +56,9 @@ public partial class OverlaySettingsWindow : Window
 
             OffsetXSlider.Value = Math.Clamp(roi.OverlayOffsetX, -1000, 1000);
             OffsetYSlider.Value = Math.Clamp(roi.OverlayOffsetY, -800, 800);
-            WidthScaleSlider.Value = Math.Clamp(roi.OverlayWidthScale, 0.25, 5.0);
-            HeightScaleSlider.Value = Math.Clamp(roi.OverlayHeightScale, 0.35, 5.0);
+            WidthSlider.Value = Math.Clamp(roi.OverlayWidth, 0, 1600);
+            HeightSlider.Value = Math.Clamp(roi.OverlayHeight, 0, 900);
+            HoldSecondsSlider.Value = Math.Clamp(roi.OverlayHoldSeconds, 0, 120);
             OpacitySlider.Value = Math.Clamp(roi.OverlayOpacity, 0.10, 1.0);
             FontSizeSlider.Value = Math.Clamp(roi.OverlayFontSize, 10, 42);
             ShowSourceCheck.IsChecked = roi.OverlayShowSource;
@@ -77,8 +75,9 @@ public partial class OverlaySettingsWindow : Window
     {
         OffsetXSlider.IsEnabled = enabled;
         OffsetYSlider.IsEnabled = enabled;
-        WidthScaleSlider.IsEnabled = enabled;
-        HeightScaleSlider.IsEnabled = enabled;
+        WidthSlider.IsEnabled = enabled;
+        HeightSlider.IsEnabled = enabled;
+        HoldSecondsSlider.IsEnabled = enabled;
         OpacitySlider.IsEnabled = enabled;
         FontSizeSlider.IsEnabled = enabled;
         ShowSourceCheck.IsEnabled = enabled;
@@ -86,7 +85,6 @@ public partial class OverlaySettingsWindow : Window
     }
 
     private void Slider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => ApplyControls();
-
     private void CheckBox_Click(object sender, RoutedEventArgs e) => ApplyControls();
 
     private void ApplyControls()
@@ -95,8 +93,9 @@ public partial class OverlaySettingsWindow : Window
 
         roi.OverlayOffsetX = OffsetXSlider.Value;
         roi.OverlayOffsetY = OffsetYSlider.Value;
-        roi.OverlayWidthScale = WidthScaleSlider.Value;
-        roi.OverlayHeightScale = HeightScaleSlider.Value;
+        roi.OverlayWidth = WidthSlider.Value < 50 ? 0 : WidthSlider.Value;
+        roi.OverlayHeight = HeightSlider.Value < 25 ? 0 : HeightSlider.Value;
+        roi.OverlayHoldSeconds = HoldSecondsSlider.Value;
         roi.OverlayOpacity = OpacitySlider.Value;
         roi.OverlayFontSize = FontSizeSlider.Value;
         roi.OverlayShowSource = ShowSourceCheck.IsChecked == true;
@@ -112,8 +111,9 @@ public partial class OverlaySettingsWindow : Window
     {
         OffsetXText.Text = $"{OffsetXSlider.Value:0}px";
         OffsetYText.Text = $"{OffsetYSlider.Value:0}px";
-        WidthScaleText.Text = $"{WidthScaleSlider.Value:0.00}x";
-        HeightScaleText.Text = $"{HeightScaleSlider.Value:0.00}x";
+        WidthText.Text = WidthSlider.Value < 50 ? "자동" : $"{WidthSlider.Value:0}px";
+        HeightText.Text = HeightSlider.Value < 25 ? "자동" : $"{HeightSlider.Value:0}px";
+        HoldSecondsText.Text = HoldSecondsSlider.Value <= 0 ? "계속" : $"{HoldSecondsSlider.Value:0}초";
         OpacityText.Text = $"{OpacitySlider.Value:P0}";
         FontSizeText.Text = $"{FontSizeSlider.Value:0}";
     }
@@ -125,6 +125,9 @@ public partial class OverlaySettingsWindow : Window
         roi.OverlayOffsetY = 0;
         roi.OverlayWidthScale = 1;
         roi.OverlayHeightScale = 1;
+        roi.OverlayWidth = 0;
+        roi.OverlayHeight = 0;
+        roi.OverlayHoldSeconds = 20;
         roi.OverlayOpacity = 0.82;
         roi.OverlayFontSize = 17;
         roi.OverlayShowSource = true;

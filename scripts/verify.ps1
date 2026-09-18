@@ -34,17 +34,18 @@ Get-ChildItem -Path .\src\RobloxLiveTranslator -Filter *.xaml -Recurse | ForEach
 }
 Write-Host "[OK] XAML parse"
 
-Write-Host "[CHECK] RoiLingo 2.0 runtime contracts"
+Write-Host "[CHECK] RoiLingo 2.1 runtime contracts"
 $contractFiles = @{
     "src\RobloxLiveTranslator\Models\AppSettings.cs" = @('SourceLanguage { get; set; } = "auto"', 'OcrLanguages { get; set; } = "eng+kor"', 'SmartMixedText { get; set; } = true', 'TargetLanguage { get; set; } = "ko"', 'TranslationStrategy { get; set; } = "WebOnly"')
-    "src\RobloxLiveTranslator\MainWindow.xaml.cs" = @('translation-cache-hybrid-v8.json', 'WindowCaptureService(_settings.CaptureMode)', 'WarmUpAfterStartAsync', 'ApplyUiLanguage')
+    "src\RobloxLiveTranslator\MainWindow.xaml.cs" = @('translation-cache-hybrid-v9.json', 'WindowCaptureService(_settings.CaptureMode)', 'WarmUpAfterStartAsync', 'ApplyUiLanguage', 'CAPTURE ')
     "src\RobloxLiveTranslator\Translation\MultiTranslator.cs" = @('_strategy.Equals("WebOnly"', 'return web;')
     "src\RobloxLiveTranslator\Translation\TranslationTextValidator.cs" = @('MatchesTargetScript', '중국어(간체)', '인도네시아어')
     "src\RobloxLiveTranslator\Translation\MixedLanguageTextProcessor.cs" = @('already-target-language', 'mixed-filtered', 'ExtractForeignRuns')
     "src\RobloxLiveTranslator\OcrLanguagePickerWindow.xaml.cs" = @('SelectedLanguages', 'eng', 'kor')
     "src\RobloxLiveTranslator\Services\WindowCaptureService.cs" = @('PrintWindow-client', 'screen-foreground-fallback', 'BackgroundOnly')
     "src\RobloxLiveTranslator\RoiEditorWindow.xaml.cs" = @('Resize_DragDelta', 'Roi_MouseMove', 'DeleteSelected')
-    "src\RobloxLiveTranslator\Overlay\OverlayWindow.xaml.cs" = @('OverlayHeightScale', '가로/세로 독립')
+    "src\RobloxLiveTranslator\Monitoring\MonitorEngine.cs" = @('CandidateSnapshot', 'TextLikelihood', 'TranslationQueue', 'CapturedAt')
+    "src\RobloxLiveTranslator\Overlay\OverlayWindow.xaml.cs" = @('OverlayWidth', 'OverlayHeight', '가로 크기만 조절', '세로 크기만 조절', 'PurgeExpired')
     "src\RobloxLiveTranslator\Services\UiText.cs" = @('ko-KR', 'en-US', 'ja-JP', 'zh-CN')
 }
 foreach ($relativePath in $contractFiles.Keys) {

@@ -21,6 +21,11 @@ public sealed class RoiDefinition
     public double OverlayOffsetY { get; set; }
     public double OverlayWidthScale { get; set; } = 1.0;
     public double OverlayHeightScale { get; set; } = 1.0;
+    // v2.1 direct overlay size in DIPs. 0 means automatic size based on the ROI/content.
+    public double OverlayWidth { get; set; }
+    public double OverlayHeight { get; set; }
+    // Seconds to keep a completed translation visible after the source disappears. 0 = until replaced.
+    public double OverlayHoldSeconds { get; set; } = 20;
     public double OverlayOpacity { get; set; } = 0.82;
     public double OverlayFontSize { get; set; } = 17;
     public bool OverlayShowSource { get; set; } = true;
@@ -44,6 +49,9 @@ public sealed class RoiDefinition
         OverlayOffsetY = OverlayOffsetY,
         OverlayWidthScale = OverlayWidthScale,
         OverlayHeightScale = OverlayHeightScale,
+        OverlayWidth = OverlayWidth,
+        OverlayHeight = OverlayHeight,
+        OverlayHoldSeconds = OverlayHoldSeconds,
         OverlayOpacity = OverlayOpacity,
         OverlayFontSize = OverlayFontSize,
         OverlayShowSource = OverlayShowSource,
