@@ -173,6 +173,9 @@ public partial class OverlayWindow : Window
 
     private void AddOverlayForRoi(RoiDefinition roi, RoiTranslationUpdate update)
     {
+        // A provider failure or an empty OCR result must never create a large opaque blank panel.
+        if (string.IsNullOrWhiteSpace(update.TargetText)) return;
+
         var x = roi.X * RootCanvas.ActualWidth;
         var y = roi.Y * RootCanvas.ActualHeight;
         var roiHeight = roi.Height * RootCanvas.ActualHeight;

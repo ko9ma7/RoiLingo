@@ -9,13 +9,13 @@
                 MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
                 MouseMove="Canvas_MouseMove"
                 MouseLeftButtonUp="Canvas_MouseLeftButtonUp"/>
-        <Border VerticalAlignment="Top" HorizontalAlignment="Center" Margin="8" Padding="10,6"
-                Background="#E6111111" CornerRadius="8">
+        <Border VerticalAlignment="Top" HorizontalAlignment="Center" Margin="12" Padding="12,8"
+                Background="#EC111C2D" BorderBrush="#355070" BorderThickness="1" CornerRadius="10">
             <StackPanel Orientation="Horizontal">
-                <TextBlock Foreground="White" FontSize="13" VerticalAlignment="Center"
+                <TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontSize="13" VerticalAlignment="Center"
                            Text="빈 곳 드래그=추가 · 박스 드래그=이동 · 파란 핸들=가로/세로 크기 변경"/>
                 <Button Content="선택 삭제" Click="DeleteSelected_Click" Margin="12,0,3,0" Padding="8,3"/>
-                <Button Content="저장" Click="Save_Click" Margin="3,0" Padding="8,3"/>
+                <Button Content="저장" Click="Save_Click" Margin="3,0" Padding="8,3" Background="{StaticResource AccentBrush}"/>
                 <Button Content="취소" Click="Cancel_Click" Margin="3,0" Padding="8,3"/>
             </StackPanel>
         </Border>

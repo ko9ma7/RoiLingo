@@ -17,10 +17,8 @@ namespace RobloxLiveTranslator;
 
 public partial class MainWindow : Window
 {
-    private const double CompactWindowWidth = 960;
-    private const double CompactWindowHeight = 190;
-    private const double AdvancedWindowMinWidth = 1120;
-    private const double AdvancedWindowMinHeight = 760;
+    private const double CompactWindowWidth = 420;
+    private const double CompactWindowHeight = 680;
     private readonly AppSettings _settings;
     private readonly HistoryStore _historyStore;
     private readonly WebTranslatorRuntime _webRuntime = new();
@@ -59,8 +57,8 @@ public partial class MainWindow : Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        CaptureExclusion.Apply(this);
         LoadUi();
+        ApplyCaptureVisibilityPolicy();
         HistoryGrid.ItemsSource = _history;
         CollectionViewSource.GetDefaultView(_history).Filter = HistoryFilter;
         await LoadHistoryAsync();
@@ -84,6 +82,7 @@ public partial class MainWindow : Window
         OcrLanguagesBox.Text = _settings.OcrLanguages;
         SelectComboByTag(OcrModeCombo, _settings.OcrMode);
         SelectComboByTag(CaptureModeCombo, _settings.CaptureMode);
+        SelectComboByTag(CaptureVisibilityCombo, _settings.CaptureVisibilityPolicy);
         SelectComboByTag(SourceLanguageCombo, _settings.SourceLanguage);
         SelectComboByTag(TargetLanguageCombo, _settings.TargetLanguage);
         OcrLanguageFollowsSourceCheck.IsChecked = _settings.OcrLanguageFollowsSource;
@@ -137,6 +136,16 @@ public partial class MainWindow : Window
         SaveAll();
     }
 
+    private void CaptureVisibilityCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        _settings.CaptureVisibilityPolicy = (CaptureVisibilityCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Allow";
+        SaveAll();
+        StatusText.Text = _settings.CaptureVisibilityPolicy == "Allow"
+            ? "캡처 허용으로 적용되었습니다."
+            : "캡처 보안 정책이 적용되었습니다.";
+    }
+
     private void ApplyUiLanguage()
     {
         var locale = UiText.NormalizeLocale(_settings.UiLanguage);
@@ -168,7 +177,7 @@ public partial class MainWindow : Window
         if (_monitor is null) StatusText.Text = UiText.Get(locale, "ready");
         LocalizeLanguageCombo(SourceLanguageCombo, locale);
         LocalizeLanguageCombo(TargetLanguageCombo, locale);
-        var strategyKeys = new[] { "strategy.web", "strategy.hybrid", "strategy.api", "strategy.max" };
+        var strategyKeys = new[] { "strategy.fast", "strategy.web", "strategy.hybrid", "strategy.api", "strategy.max" };
         for (var i = 0; i < TranslationStrategyCombo.Items.Count && i < strategyKeys.Length; i++)
             if (TranslationStrategyCombo.Items[i] is ComboBoxItem item) item.Content = UiText.Get(locale, strategyKeys[i]);
         LocalizeTree(this, locale);
@@ -213,8 +222,9 @@ public partial class MainWindow : Window
             _settings.OcrLanguages = TranslationLanguages.ToTesseract(_settings.SourceLanguage);
             OcrLanguagesBox.Text = _settings.OcrLanguages;
         }
-        _settings.OcrMode = (OcrModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Balanced";
+        _settings.OcrMode = (OcrModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Fast";
         _settings.CaptureMode = (CaptureModeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "BackgroundFirst";
+        _settings.CaptureVisibilityPolicy = (CaptureVisibilityCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Allow";
         _settings.TargetLanguage = TranslationLanguages.Normalize((TargetLanguageCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), false);
         _settings.SmartMixedText = SmartMixedTextCheck.IsChecked == true;
         RefreshOcrLanguageButton();
@@ -229,7 +239,7 @@ public partial class MainWindow : Window
         _settings.WebProviders.Google = GoogleWebEnabled.IsChecked == true;
         _settings.WebProviders.DeepL = DeepLWebEnabled.IsChecked == true;
         _settings.AllowClipboardFallback = ClipboardFallbackCheck.IsChecked == true;
-        _settings.TranslationStrategy = (TranslationStrategyCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "WebOnly";
+        _settings.TranslationStrategy = (TranslationStrategyCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Fastest";
         _settings.PreferredProvider = (PreferredProviderCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Auto";
 
         SyncBudget(_settings.ApiProviders.Papago, PapagoApiEnabled, PapagoDailyLimitBox, PapagoMonthlyLimitBox);
@@ -539,8 +549,10 @@ public partial class MainWindow : Window
             if (liveVisible) _liveWindow?.Hide();
             await Task.Delay(90);
 
-            var snapshot = ScreenCaptureService.CaptureVirtualScreen();
-            if (snapshot is null) throw new InvalidOperationException("현재 화면을 캡처하지 못했습니다.");
+            var snapshot = ScreenCaptureService.CaptureVirtualScreen(_targetHwnd);
+            AddLog($"QUICKCAP {ScreenCaptureService.LastMethod}");
+            if (snapshot is null)
+                throw new InvalidOperationException($"현재 화면을 캡처하지 못했습니다. 캡처 경로: {ScreenCaptureService.LastMethod}");
 
             var selector = new QuickCaptureWindow(snapshot);
             var selected = selector.ShowDialog() == true ? selector.SelectedBitmap : null;
@@ -580,7 +592,10 @@ public partial class MainWindow : Window
             }
 
             var capture = new WindowCaptureService("Auto");
-            using var bitmap = capture.CaptureClient(hwnd) ?? throw new InvalidOperationException("활성 창을 캡처하지 못했습니다.");
+            using var bitmap = capture.CaptureClient(hwnd);
+            AddLog($"QUICKWIN {capture.LastMethod}");
+            if (bitmap is null)
+                throw new InvalidOperationException($"활성 창을 캡처하지 못했습니다. 캡처 경로: {capture.LastMethod}");
             await TranslateQuickBitmapAsync(bitmap, "빠른 창");
         }
         catch (Exception ex)
@@ -1052,16 +1067,10 @@ public partial class MainWindow : Window
         }
 
         AdvancedPanel.Visibility = Visibility.Visible;
+        AdvancedPopup.IsOpen = true;
         AdvancedSettingsButton.Content = "설정 닫기";
         if (StrategyUsesWeb() && HasEnabledWebProvider())
             _ = PrepareVisibleWebPreviewOnSettingsOpenAsync();
-        MinWidth = AdvancedWindowMinWidth;
-        MinHeight = AdvancedWindowMinHeight;
-
-        var work = SystemParameters.WorkArea;
-        Width = Math.Min(Math.Max(Width, 1280), Math.Max(AdvancedWindowMinWidth, work.Width - 40));
-        Height = Math.Min(Math.Max(Height, 840), Math.Max(AdvancedWindowMinHeight, work.Height - 40));
-        ClampWindowToWorkArea(work);
         MainTabs.Focus();
     }
 
@@ -1093,10 +1102,11 @@ public partial class MainWindow : Window
             AddLog("SETTINGS 저장 실패: " + ex.Message);
         }
 
+        AdvancedPopup.IsOpen = false;
         AdvancedPanel.Visibility = Visibility.Collapsed;
         AdvancedSettingsButton.Content = "설정";
-        MinWidth = 560;
-        MinHeight = 135;
+        MinWidth = 380;
+        MinHeight = 560;
         Width = CompactWindowWidth;
         Height = CompactWindowHeight;
         ClampWindowToWorkArea(SystemParameters.WorkArea);
@@ -1307,7 +1317,33 @@ public partial class MainWindow : Window
         AddLog("SETTINGS 저장 완료");
     }
 
-    private void SaveAll() => SettingsStore.SaveSettings(_settings);
+    private void SaveAll()
+    {
+        SettingsStore.SaveSettings(_settings);
+        ApplyCaptureVisibilityPolicy();
+    }
+
+    private void ApplyCaptureVisibilityPolicy()
+    {
+        CaptureExclusion.Configure(_settings.CaptureVisibilityPolicy);
+        CaptureExclusion.Apply(this);
+        if (_overlay is not null) CaptureExclusion.Apply(_overlay);
+        if (_liveWindow is not null) CaptureExclusion.Apply(_liveWindow);
+        UpdateCapturePolicyStatus();
+    }
+
+    private void UpdateCapturePolicyStatus()
+    {
+        if (CapturePolicyStatusText is null) return;
+        var session = NativeMethods.IsRemoteSession ? "원격 세션" : "로컬 세션";
+        var policy = _settings.CaptureVisibilityPolicy switch
+        {
+            "Exclude" => "캡처 차단",
+            "MonitorOnly" => "캡처 시 검정",
+            _ => "캡처 허용"
+        };
+        CapturePolicyStatusText.Text = $"{session} · {policy}";
+    }
 
     private void RefreshRoiGrid()
     {

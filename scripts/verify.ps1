@@ -36,9 +36,9 @@ Write-Host "[OK] XAML parse"
 
 Write-Host "[CHECK] RoiLingo 2.2.1 runtime contracts"
 $contractFiles = @{
-    "src\RobloxLiveTranslator\Models\AppSettings.cs" = @('SourceLanguage { get; set; } = "auto"', 'OcrLanguages { get; set; } = "eng+kor"', 'SmartMixedText { get; set; } = true', 'TargetLanguage { get; set; } = "ko"', 'TranslationStrategy { get; set; } = "WebOnly"')
+    "src\RobloxLiveTranslator\Models\AppSettings.cs" = @('SourceLanguage { get; set; } = "en"', 'OcrLanguages { get; set; } = "eng+kor"', 'SmartMixedText { get; set; } = true', 'TargetLanguage { get; set; } = "ko"', 'TranslationStrategy { get; set; } = "Fastest"')
     "src\RobloxLiveTranslator\MainWindow.xaml.cs" = @('QuickRegionTranslateAsync', 'QuickClipboardTranslateAsync', 'TranslateFirstSuccessAsync', 'translation-cache-hybrid-v11.json', 'WindowCaptureService(_settings.CaptureMode)', 'WarmUpAfterStartAsync', 'ApplyUiLanguage', 'CAPTURE ', 'EnsureWebEngineReadyAsync', 'WebTranslatorHostWindow', 'ROI 캡처/OCR 감시를 먼저 시작했습니다', 'if (_webHost is not null) return _webHost')
-    "src\RobloxLiveTranslator\Translation\MultiTranslator.cs" = @('TranslateFirstSuccessAsync', '_strategy.Equals("WebOnly"', 'return web;')
+    "src\RobloxLiveTranslator\Translation\MultiTranslator.cs" = @('TranslateFirstSuccessAsync', '_strategy.Equals("Fastest"', '_strategy.Equals("WebOnly"', 'return web;')
     "src\RobloxLiveTranslator\Translation\TranslationTextValidator.cs" = @('MatchesTargetScript', '중국어(간체)', '인도네시아어')
     "src\RobloxLiveTranslator\Translation\MixedLanguageTextProcessor.cs" = @('already-target-language', 'mixed-filtered', 'ExtractForeignRuns')
     "src\RobloxLiveTranslator\OcrLanguagePickerWindow.xaml.cs" = @('SelectedLanguages', 'eng', 'kor')

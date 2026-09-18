@@ -41,7 +41,7 @@ public static class SettingsStore
 
     public static void SaveSettings(AppSettings settings)
     {
-        settings.SchemaVersion = 11;
+        settings.SchemaVersion = 13;
         Directory.CreateDirectory(AppDirectory);
         var temp = SettingsPath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(settings, JsonOptions), new UTF8Encoding(false));
@@ -50,6 +50,12 @@ public static class SettingsStore
 
     private static AppSettings Migrate(AppSettings settings)
     {
+        settings.CaptureVisibilityPolicy = settings.CaptureVisibilityPolicy switch
+        {
+            "Exclude" => "Exclude",
+            "MonitorOnly" => "MonitorOnly",
+            _ => "Allow"
+        };
         settings.PreferredProvider = string.IsNullOrWhiteSpace(settings.PreferredProvider) ? "Auto" : settings.PreferredProvider;
         if (settings.SchemaVersion < 2)
         {
@@ -69,10 +75,10 @@ public static class SettingsStore
                 };
         }
 
-        settings.SourceLanguage = string.IsNullOrWhiteSpace(settings.SourceLanguage) ? "auto" : TranslationLanguages.Normalize(settings.SourceLanguage);
+        settings.SourceLanguage = string.IsNullOrWhiteSpace(settings.SourceLanguage) ? "en" : TranslationLanguages.Normalize(settings.SourceLanguage);
         settings.TargetLanguage = string.IsNullOrWhiteSpace(settings.TargetLanguage) ? "ko" : TranslationLanguages.Normalize(settings.TargetLanguage, false);
         settings.OcrLanguages = string.IsNullOrWhiteSpace(settings.OcrLanguages) ? "eng+kor" : settings.OcrLanguages.Trim();
-        settings.TranslationStrategy = string.IsNullOrWhiteSpace(settings.TranslationStrategy) ? "WebOnly" : settings.TranslationStrategy;
+        settings.TranslationStrategy = string.IsNullOrWhiteSpace(settings.TranslationStrategy) ? "Fastest" : settings.TranslationStrategy;
         settings.Rois ??= [];
 
         settings.WebProviders ??= new WebProviderFlags();
@@ -168,6 +174,29 @@ public static class SettingsStore
                 settings.CaptureMode = "Auto";
         }
 
+        if (settings.SchemaVersion < 13)
+        {
+            // v2.2.2: the old defaults performed three simultaneous WebView translations and
+            // two OCR passes. Migrate only the recognizable untouched legacy combination so
+            // deliberate user tuning is preserved.
+            var legacyDefaults = (settings.SourceLanguage.Equals("auto", StringComparison.OrdinalIgnoreCase) ||
+                                  settings.SourceLanguage.Equals("en", StringComparison.OrdinalIgnoreCase)) &&
+                                 settings.OcrLanguages.Equals("eng+kor", StringComparison.OrdinalIgnoreCase) &&
+                                 !settings.OcrLanguageFollowsSource &&
+                                 settings.OcrMode.Equals("Balanced", StringComparison.OrdinalIgnoreCase) &&
+                                 settings.TranslationStrategy.Equals("WebOnly", StringComparison.OrdinalIgnoreCase) &&
+                                 settings.PollIntervalMs == 150 &&
+                                 settings.SettleMs == 100 &&
+                                 settings.ProviderWindowMs == 2500;
+            if (legacyDefaults)
+            {
+                settings.SourceLanguage = "en";
+                settings.OcrMode = "Fast";
+                settings.TranslationStrategy = "Fastest";
+                settings.ProviderWindowMs = 1600;
+            }
+        }
+
         settings.LiveWindowWidth = Math.Clamp(settings.LiveWindowWidth, 360, 2400);
         settings.LiveWindowHeight = Math.Clamp(settings.LiveWindowHeight, 220, 1600);
         settings.LiveWindowFontSize = Math.Clamp(settings.LiveWindowFontSize, 12, 32);
@@ -187,7 +216,7 @@ public static class SettingsStore
             roi.OverlayOffsetY = Math.Clamp(roi.OverlayOffsetY, -800, 800);
         }
 
-        settings.SchemaVersion = 11;
+        settings.SchemaVersion = 13;
         return settings;
     }
 
@@ -204,5 +233,16 @@ public static class SettingsStore
         }
     }
 
-    private static AppSettings CreateDefault() => new() { SchemaVersion = 11, TranslationStrategy = "WebOnly", SourceLanguage = "auto", OcrLanguages = "eng+kor", OcrLanguageFollowsSource = false, SmartMixedText = true };
+    private static AppSettings CreateDefault() => new()
+    {
+        SchemaVersion = 13,
+        CaptureVisibilityPolicy = "Allow",
+        TranslationStrategy = "Fastest",
+        SourceLanguage = "en",
+        OcrLanguages = "eng+kor",
+        OcrLanguageFollowsSource = false,
+        OcrMode = "Fast",
+        ProviderWindowMs = 1600,
+        SmartMixedText = true
+    };
 }

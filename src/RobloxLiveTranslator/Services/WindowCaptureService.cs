@@ -86,13 +86,29 @@ public sealed class WindowCaptureService
 
         try
         {
-            var screen = new Bitmap(clientRect.Width, clientRect.Height, PixelFormat.Format32bppArgb);
-            using var g = Graphics.FromImage(screen);
-            g.CopyFromScreen(clientRect.Left, clientRect.Top, 0, 0, screen.Size, CopyPixelOperation.SourceCopy);
+            var screen = TryCopyScreen(clientRect, CopyPixelOperation.SourceCopy | CopyPixelOperation.CaptureBlt);
+            if (screen is not null) return screen;
+            return TryCopyScreen(clientRect, CopyPixelOperation.SourceCopy);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Bitmap? TryCopyScreen(NativeMethods.RECT clientRect, CopyPixelOperation operation)
+    {
+        Bitmap? screen = null;
+        try
+        {
+            screen = new Bitmap(clientRect.Width, clientRect.Height, PixelFormat.Format32bppArgb);
+            using var graphics = Graphics.FromImage(screen);
+            graphics.CopyFromScreen(clientRect.Left, clientRect.Top, 0, 0, screen.Size, operation);
             return IsVisuallyEmpty(screen) ? DisposeAndNull(screen) : screen;
         }
         catch
         {
+            screen?.Dispose();
             return null;
         }
     }

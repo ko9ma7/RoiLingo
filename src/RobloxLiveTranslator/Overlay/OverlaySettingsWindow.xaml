@@ -4,18 +4,18 @@
         Title="RoiLingo - 게임 오버레이 설정"
         Width="560" Height="650" MinWidth="500" MinHeight="560"
         WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
-        Topmost="True">
-    <Grid Margin="12">
+        Topmost="True" Background="{StaticResource AppBackground}" Foreground="{StaticResource TextPrimaryBrush}">
+    <Grid Margin="18">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#F4F4F4" CornerRadius="6" Padding="10" Margin="0,0,0,10">
+            <Border Grid.Row="0" Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,14">
             <StackPanel>
                 <TextBlock Text="게임 위 반투명 번역 오버레이" FontWeight="Bold" FontSize="15"/>
-                <TextBlock Margin="0,4,0,0" Foreground="#555" TextWrapping="Wrap"
+                <TextBlock Margin="0,4,0,0" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"
                            Text="ROI별 위치, 실제 가로/세로 크기, 유지 시간, 투명도와 글자 크기를 조절합니다. 너비/높이 0은 내용에 맞춘 자동 크기입니다."/>
             </StackPanel>
         </Border>
@@ -78,7 +78,7 @@
                     <CheckBox x:Name="ShowMetaCheck" Content="Provider / OCR 정확도 / 교차 일치도 표시" Margin="0,6,0,0" Click="CheckBox_Click"/>
                 </StackPanel>
 
-                <TextBlock Grid.Row="9" Grid.ColumnSpan="3" Margin="0,14,0,4" Foreground="#666" TextWrapping="Wrap"
+                <TextBlock Grid.Row="9" Grid.ColumnSpan="3" Margin="0,14,0,4" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"
                            Text="유지 시간 0초는 다음 번역이 나올 때까지 계속 표시합니다. 순간적으로 사라지는 게임 공지도 OCR 스냅샷으로 번역을 끝까지 처리하고 기록에 남깁니다."/>
             </Grid>
         </ScrollViewer>

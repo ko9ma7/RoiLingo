@@ -10,7 +10,7 @@ public static class UiText
             ["live"]="번역창", ["settings"]="설정", ["source"]="원문", ["translate"]="→ 번역", ["mode"]="방식",
             ["advanced"]="고급 설정", ["save"]="저장", ["close"]="닫기", ["ready"]="대상 → ROI → 시작",
             ["tab.general"]="설정 / ROI", ["tab.web"]="번역 웹 / 교차 검증", ["tab.api"]="번역 API / 로컬", ["tab.history"]="번역 기록",
-            ["strategy.web"]="무료 · Web 3종 교차검증", ["strategy.hybrid"]="API/로컬 우선 · Web 보조검증", ["strategy.api"]="API/로컬만 (안정 우선)", ["strategy.max"]="전체 Provider 교차검증",
+            ["strategy.fast"]="빠른 번역 · 단일 Provider", ["strategy.web"]="무료 · Web 3종 교차검증", ["strategy.hybrid"]="API/로컬 우선 · Web 보조검증", ["strategy.api"]="API/로컬만 (안정 우선)", ["strategy.max"]="전체 Provider 교차검증",
             ["auto"]="자동 감지", ["ko"]="한국어", ["en"]="영어", ["ja"]="일본어", ["zh-CN"]="중국어(간체)", ["zh-TW"]="중국어(번체)",
             ["es"]="스페인어", ["fr"]="프랑스어", ["de"]="독일어", ["ru"]="러시아어", ["pt"]="포르투갈어", ["it"]="이탈리아어",
             ["vi"]="베트남어", ["th"]="태국어", ["id"]="인도네시아어", ["hi"]="힌디어", ["ar"]="아랍어"
@@ -21,7 +21,7 @@ public static class UiText
             ["live"]="Live", ["settings"]="Settings", ["source"]="Source", ["translate"]="→ Target", ["mode"]="Mode",
             ["advanced"]="Advanced settings", ["save"]="Save", ["close"]="Close", ["ready"]="Target → ROI → Start",
             ["tab.general"]="General / ROI", ["tab.web"]="Web / Cross-check", ["tab.api"]="API / Local", ["tab.history"]="History",
-            ["strategy.web"]="Free · 3 Web translators", ["strategy.hybrid"]="API/local first · Web verify", ["strategy.api"]="API/local only", ["strategy.max"]="All providers cross-check",
+            ["strategy.fast"]="Fast · single provider", ["strategy.web"]="Free · 3 Web translators", ["strategy.hybrid"]="API/local first · Web verify", ["strategy.api"]="API/local only", ["strategy.max"]="All providers cross-check",
             ["auto"]="Auto detect", ["ko"]="Korean", ["en"]="English", ["ja"]="Japanese", ["zh-CN"]="Chinese (Simplified)", ["zh-TW"]="Chinese (Traditional)",
             ["es"]="Spanish", ["fr"]="French", ["de"]="German", ["ru"]="Russian", ["pt"]="Portuguese", ["it"]="Italian",
             ["vi"]="Vietnamese", ["th"]="Thai", ["id"]="Indonesian", ["hi"]="Hindi", ["ar"]="Arabic"
@@ -32,7 +32,7 @@ public static class UiText
             ["live"]="翻訳ウィンドウ", ["settings"]="設定", ["source"]="原文", ["translate"]="→ 翻訳", ["mode"]="方式",
             ["advanced"]="詳細設定", ["save"]="保存", ["close"]="閉じる", ["ready"]="対象 → ROI → 開始",
             ["tab.general"]="設定 / ROI", ["tab.web"]="Web / 相互確認", ["tab.api"]="API / ローカル", ["tab.history"]="翻訳履歴",
-            ["strategy.web"]="無料 · Web 3種相互確認", ["strategy.hybrid"]="API/ローカル優先 · Web確認", ["strategy.api"]="API/ローカルのみ", ["strategy.max"]="全Provider相互確認",
+            ["strategy.fast"]="高速 · 単一Provider", ["strategy.web"]="無料 · Web 3種相互確認", ["strategy.hybrid"]="API/ローカル優先 · Web確認", ["strategy.api"]="API/ローカルのみ", ["strategy.max"]="全Provider相互確認",
             ["auto"]="自動検出", ["ko"]="韓国語", ["en"]="英語", ["ja"]="日本語", ["zh-CN"]="中国語(簡体)", ["zh-TW"]="中国語(繁体)",
             ["es"]="スペイン語", ["fr"]="フランス語", ["de"]="ドイツ語", ["ru"]="ロシア語", ["pt"]="ポルトガル語", ["it"]="イタリア語",
             ["vi"]="ベトナム語", ["th"]="タイ語", ["id"]="インドネシア語", ["hi"]="ヒンディー語", ["ar"]="アラビア語"
@@ -43,7 +43,7 @@ public static class UiText
             ["live"]="翻译窗", ["settings"]="设置", ["source"]="源语言", ["translate"]="→ 翻译", ["mode"]="模式",
             ["advanced"]="高级设置", ["save"]="保存", ["close"]="关闭", ["ready"]="目标 → ROI → 开始",
             ["tab.general"]="设置 / ROI", ["tab.web"]="网页 / 交叉验证", ["tab.api"]="API / 本地", ["tab.history"]="翻译记录",
-            ["strategy.web"]="免费 · 3个网页翻译交叉验证", ["strategy.hybrid"]="API/本地优先 · 网页验证", ["strategy.api"]="仅API/本地", ["strategy.max"]="全部Provider交叉验证",
+            ["strategy.fast"]="快速 · 单个Provider", ["strategy.web"]="免费 · 3个网页翻译交叉验证", ["strategy.hybrid"]="API/本地优先 · 网页验证", ["strategy.api"]="仅API/本地", ["strategy.max"]="全部Provider交叉验证",
             ["auto"]="自动检测", ["ko"]="韩语", ["en"]="英语", ["ja"]="日语", ["zh-CN"]="中文(简体)", ["zh-TW"]="中文(繁体)",
             ["es"]="西班牙语", ["fr"]="法语", ["de"]="德语", ["ru"]="俄语", ["pt"]="葡萄牙语", ["it"]="意大利语",
             ["vi"]="越南语", ["th"]="泰语", ["id"]="印尼语", ["hi"]="印地语", ["ar"]="阿拉伯语"

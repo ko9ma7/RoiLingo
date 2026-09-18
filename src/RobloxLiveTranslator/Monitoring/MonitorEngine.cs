@@ -316,6 +316,12 @@ public sealed class MonitorEngine : IAsyncDisposable
             if (duplicateInFlight || duplicateQueued) return;
 
             var limit = roi.EventMode ? EventQueueLimit : NormalQueueLimit;
+            if (!roi.EventMode && state.TranslationQueue.Count > 0)
+            {
+                // For a normal chat/UI ROI, an old sentence is less useful than the current one.
+                // Keep the in-flight request, but replace queued stale work with the newest OCR.
+                state.TranslationQueue.Clear();
+            }
             while (state.TranslationQueue.Count >= limit)
             {
                 state.TranslationQueue.Dequeue();

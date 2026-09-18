@@ -11,11 +11,11 @@
         <Image x:Name="ScreenshotImage" Stretch="Fill"/>
         <Border Background="#25000000" IsHitTestVisible="False"/>
         <Canvas x:Name="SelectionCanvas" Background="Transparent">
-            <Border x:Name="HintPanel" Canvas.Left="18" Canvas.Top="18" Background="#D9202020" CornerRadius="6" Padding="12,8" IsHitTestVisible="False">
+            <Border x:Name="HintPanel" Canvas.Left="18" Canvas.Top="18" Background="#E6111C2D" BorderBrush="#4A6A91" BorderThickness="1" CornerRadius="8" Padding="12,8" IsHitTestVisible="False">
                 <TextBlock Foreground="White" FontSize="14" Text="드래그: 번역할 영역 선택   Esc/우클릭: 취소"/>
             </Border>
             <Rectangle x:Name="SelectionRect" Visibility="Collapsed" Stroke="#FF54A7FF" StrokeThickness="2" Fill="#20FFFFFF" IsHitTestVisible="False"/>
-            <Border x:Name="SizePanel" Visibility="Collapsed" Background="#D9202020" CornerRadius="4" Padding="6,3" IsHitTestVisible="False">
+            <Border x:Name="SizePanel" Visibility="Collapsed" Background="#E6111C2D" BorderBrush="#4A6A91" BorderThickness="1" CornerRadius="5" Padding="6,3" IsHitTestVisible="False">
                 <TextBlock x:Name="SizeText" Foreground="White" FontSize="12"/>
             </Border>
         </Canvas>

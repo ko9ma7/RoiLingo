@@ -4,12 +4,17 @@ public sealed class AppSettings
 {
     public int SchemaVersion { get; set; }
     public string UiLanguage { get; set; } = "ko-KR";
+    // Allow the app to remain visible in Remote Desktop, screen sharing, and normal screenshots by default.
+    // "Exclude" opts into WDA_EXCLUDEFROMCAPTURE; "MonitorOnly" renders as black to capture APIs.
+    public string CaptureVisibilityPolicy { get; set; } = "Allow";
     public string CaptureMode { get; set; } = "Auto";
     public bool BackgroundWarmup { get; set; } = true;
-    public string SourceLanguage { get; set; } = "auto";
+    // Roblox chat/UI text is predominantly English. Keep Korean OCR enabled separately so
+    // already-target-language text can still be recognized and left untouched.
+    public string SourceLanguage { get; set; } = "en";
     public bool OcrLanguageFollowsSource { get; set; } = false;
     public string OcrLanguages { get; set; } = "eng+kor";
-    public string OcrMode { get; set; } = "Balanced";
+    public string OcrMode { get; set; } = "Fast";
     public string TargetLanguage { get; set; } = "ko";
     public bool SmartMixedText { get; set; } = true;
     public int PollIntervalMs { get; set; } = 150;
@@ -17,7 +22,9 @@ public sealed class AppSettings
     public int ForceOcrSeconds { get; set; } = 8;
     public double ChangeThreshold { get; set; } = 0.035;
 
-    public string TranslationStrategy { get; set; } = "WebOnly";
+    // The compact/main workflow should return the first valid result. Cross-checking remains
+    // available from the advanced strategy selector when accuracy is more important than latency.
+    public string TranslationStrategy { get; set; } = "Fastest";
     public string PreferredProvider { get; set; } = "Auto";
     public int ProviderWindowMs { get; set; } = 2500;
     public int WebTranslationTimeoutMs { get; set; } = 8000;

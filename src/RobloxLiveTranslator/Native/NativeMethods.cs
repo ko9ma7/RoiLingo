@@ -24,6 +24,7 @@ internal static class NativeMethods
     public const int SM_YVIRTUALSCREEN = 77;
     public const int SM_CXVIRTUALSCREEN = 78;
     public const int SM_CYVIRTUALSCREEN = 79;
+    public const int SM_REMOTESESSION = 0x1000;
     public static readonly IntPtr HWND_TOPMOST = new(-1);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -148,4 +149,6 @@ internal static class NativeMethods
         GetWindowText(hwnd, sb, sb.Capacity);
         return sb.ToString();
     }
+
+    public static bool IsRemoteSession => GetSystemMetrics(SM_REMOTESESSION) != 0;
 }

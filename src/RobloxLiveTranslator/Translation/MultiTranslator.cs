@@ -20,7 +20,7 @@ public sealed class MultiTranslator
     {
         _providers = providers.Where(p => p.IsConfigured).ToArray();
         _preferred = string.IsNullOrWhiteSpace(preferred) ? "Auto" : preferred;
-        _strategy = string.IsNullOrWhiteSpace(strategy) ? "WebOnly" : strategy;
+        _strategy = string.IsNullOrWhiteSpace(strategy) ? "Fastest" : strategy;
         _windowMs = Math.Clamp(windowMs, 1200, 12000);
         _cache = cache;
     }
@@ -35,12 +35,15 @@ public sealed class MultiTranslator
         if (sourceLanguage != "auto" && sourceLanguage.Equals(targetLanguage, StringComparison.OrdinalIgnoreCase))
             return new TranslationBundle("원문", source, [new ProviderTranslation("원문", source, TimeSpan.Zero)], 1);
 
+        if (_strategy.Equals("Fastest", StringComparison.OrdinalIgnoreCase))
+            return await TranslateFirstSuccessAsync(source, sourceLanguage, targetLanguage, cancellationToken);
+
         var hasWeb = _providers.Any(p => p.Kind == TranslationProviderKind.Web);
         var hasNonWeb = _providers.Any(p => p.Kind != TranslationProviderKind.Web);
         var webCrossCheckMode = hasWeb &&
             (_strategy.Equals("WebOnly", StringComparison.OrdinalIgnoreCase) ||
              _strategy.Equals("MaximumCrossCheck", StringComparison.OrdinalIgnoreCase) ||
-             !hasNonWeb);
+             (!hasNonWeb && !_strategy.Equals("Fastest", StringComparison.OrdinalIgnoreCase)));
 
         // When Web translators are the only translation path, do not let one old cached answer
         // short-circuit the whole WebView pipeline. The user explicitly enabled visible Web cross-checking,
@@ -167,6 +170,18 @@ public sealed class MultiTranslator
 
         if (_strategy.Equals("MaximumCrossCheck", StringComparison.OrdinalIgnoreCase))
             return all;
+        if (_strategy.Equals("Fastest", StringComparison.OrdinalIgnoreCase))
+        {
+            var preferredFast = all.FirstOrDefault(p => !IsAutoPreferred() &&
+                p.Name.Equals(_preferred, StringComparison.OrdinalIgnoreCase));
+            if (preferredFast is not null) return [preferredFast];
+
+            // API/local providers are generally faster than a WebView. Otherwise use the first
+            // enabled web provider consistently instead of rotating between three slow tabs.
+            var fast = all.FirstOrDefault(p => p.Kind != TranslationProviderKind.Web) ??
+                       all.FirstOrDefault(p => p.Kind == TranslationProviderKind.Web);
+            return fast is null ? [] : [fast];
+        }
         if (_strategy.Equals("WebOnly", StringComparison.OrdinalIgnoreCase))
             return all.Where(p => p.Kind == TranslationProviderKind.Web).ToArray();
         if (_strategy.Equals("ApiOnly", StringComparison.OrdinalIgnoreCase))
